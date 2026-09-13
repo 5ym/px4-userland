@@ -67,8 +67,7 @@ Alpine Linux（BusyBox mdev、コールドプラグスキャンヘルパー、Op
 
 #### AppArmor
 
-自作profileで`px4d`を拘束する場合のUSB node、runtime、PC/SC適用範囲に関する実機検証結果は
-[AppArmorで実行する際の注意](docs/platforms/apparmor.md)を参照してください。
+自作profileによる`px4d`の拘束、USBデバイスノードの権限、ランタイム、PC/SCの適用範囲に関する実機検証結果は [AppArmorで実行する際の注意](docs/platforms/apparmor.md) を参照する。
 
 ## 導入方法
 
@@ -264,7 +263,7 @@ px4d --device BASE_SERIAL --firmware PATH [--runtime-dir PATH] [--group] [--allo
 - `--allow-lnb-power`: 衛星放送受信時の LNB 15V 給電を許可します（安全のための明示的 opt-in）。
 - `--fd FD --fd FD`: Android 環境などで、ホスト側が開いた 2 つの USB ファイルディスクリプタを直接渡して起動します（この場合 `--device` は任意）。
 
-同一Linuxホスト内のlocalhost usbipでは、export元の物理USB機能とVHCI側へimportされた機能が同じlibusb contextに同一serialで現れます。この構成ではnative列挙がduplicate slotとして`INVALID_ARGUMENT`になるため、VHCI側の2 nodeを事前にopenし、`--fd FD --fd FD`で明示してください。LAN越しusbipは未検証であり、この制限が同じ形で現れるとは限りません。
+同一Linuxホスト内のlocalhost usbipを利用する場合は、VHCI側の2ノードを事前にopenし、`--fd FD --fd FD`で指定する。同一libusbコンテキスト内にexport元の物理機能とimport先のVHCI機能が同一シリアルで現れ、通常列挙では重複スロット（`INVALID_ARGUMENT`）となるためである。なお、LAN経由のusbip構成は未検証である。
 
 ### `px4-ts`（MPEG-TS 受信ツール）
 

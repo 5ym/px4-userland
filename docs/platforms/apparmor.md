@@ -1,59 +1,67 @@
 # AppArmorで実行する際の注意
 
-> **検証済み構成について:** 本文書は、一時的な自作profileを用いた実機検証の記録と、
-> その際に判明した運用上の注意です。本リポジトリはAppArmor profileを同梱しておらず、
-> 任意のprofileや将来のOS更新における動作を保証するものではありません。
+> [!NOTE]
+> 本リポジトリにAppArmor profileは含まれない。本文書は一時的な自作profileによる実機検証の記録と運用上の注意である。
 
-## 検証対象
+## 実行前の要点
+
+- profileは利用者側で用意する。
+- profile割り当て前の実行状態は `unconfined` となる。
+- 起動後に `/proc/<pid>/attr/current` を確認し、対象profileの適用状態を確かめる。
+- 検証対象は `px4d` をprofile拘束し、クライアント（`px4-ts` や `px4ctl`）を外部からUnixドメインソケット経由で接続させる構成である。
+
+## 検証環境
 
 - 検証日: 2026-09-14
-- `px4-userland`: Stable v0.1.3 Linux glibc x86_64配布アーカイブ
-- ホスト: Latitude 5300 / AnduinOS / Linux 7.0.0-31-generic / AppArmor 5.0.2
-- チューナー: PX-Q3U4（USB ID `0511:084a`、2 USB機能）
-- 起動方法: 名前付きprofileをloadし、`aa-exec -p`から`px4d`を直接起動
+- ソフトウェア: `px4-userland` Stable v0.1.3 Linux glibc x86_64 配布アーカイブ
+- デーモンバイナリ: `px4d`（SHA-256: `0fa31583b8725183017c0f8b0e5eec437700da9a3d9e5e4c803cce17ef61e6c6`）
+- ファームウェア: IT930xファームウェア（SHA-256: `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`）
+- ハードウェア: Latitude 5300
+- OS: AnduinOS（Linux 7.0.0-31-generic）
+- AppArmorバージョン: 5.0.2
+- 使用チューナー: PX-Q3U4 1台（USB ID `0511:084a`、2つのUSB機能）
+- 起動方法: 名前付きprofileをロードし、`aa-exec -p` 経由で `px4d` を直接起動
 
-## 実機で確認したこと
+## 検証結果
 
-- USB device nodeを許可しないenforce profileでは、profile内の`px4d`自身による2 nodeの
-  native openが有限時間内に失敗し、両nodeへのAppArmor denialが記録された。
-- allow profileでは、complain 30秒、enforce 60秒、enforce 30分を完走した。
-- 30分ではreceiver 0〜6のsync / TEI / continuity / queue / USB errorは0だった。
-  receiver 7は同一試験個体で追跡中の既知burstの範囲内だった。
-- `px4ctl status`は157/157、direct card APDUは157/157成功し、全応答末尾が`90:00`だった。
-- 30分間の157測定でdaemonのFDは29で固定し、RSSは94,812〜114,820 KiBで単調増加しなかった。
-- 合格runのAppArmor denialとkernel Oops / OOM / USB reset / disconnectは0で、終了後に
-  profile、process、専用runtimeの残留がないことを確認した。
+- USB nodeの許可を省いたdeny gateでは、`px4d` 自身による2 node openが有限時間内に失敗し、両ノードへのAppArmor拒否ログが記録された。
+- 必要な権限を付与したprofileでは、complain（30秒）、enforce（60秒）、enforce（30分）の全試験を完走した。
+- 30分受信において、受信機0〜6のsyncエラー、TEI、continuityエラー、キュー破棄、USBエラーはすべて0件だった。
+- 受信機7のエラー発生状況は、同一試験個体で追跡中の既知バーストの範囲内であった。
+- `px4ctl status` は157回中157回成功した。
+- 直接カードAPDUも157回中157回成功し、全応答末尾が `90:00` であった。
+- 30分間の157回にわたる測定において、デーモンのファイルディスクリプタ数は29で固定された。
+- RSSは94,812〜114,820 KiBの範囲で推移し、単調増加はなかった。
+- 合格試験中のAppArmor拒否、カーネルOops、OOM、USBリセット、切断の発生は0件だった。
+- 終了後にprofile、プロセス、専用ランタイムの残留がないことを確認した。
+- 詳細な測定値は [OS・環境別の検証結果](validation-results.md) を参照する。
 
-詳細な結果は[OS・環境別の検証結果](validation-results.md)を参照してください。
+## profileに必要だった権限
 
-## Profile設計の要点
+- `px4d` 本体の実行権限。
+- ファームウェアの読み取り権限。
+- 対象USBデバイスノード（2ノード分）の読み書き権限。
+- USB sysfsおよびudevデータベースの読み取り権限。
+- netlink通信権限。
+- プロセス間シグナル送信権限。
+- Unixドメインソケットの作成権限。
+- 専用ランタイムディレクトリへの読み書き権限。
+- ファームウェアおよびランタイムディレクトリは、実行ユーザーが通常権限でアクセス可能な所有権を設定する（所有権の不一致を `dac_override` や `dac_read_search` で回避する構成は避ける）。
 
-- AppArmorが有効なLinuxでも、profileへ入っていないprocessは`unconfined`のままです。
-  `aa-exec -p`またはservice manager側の設定で、実際の`px4d`が意図したprofileへ入ったことを
-  `/proc/<pid>/attr/current`などで確認してください。
-- 実測したprofileでは、`px4d`、firmwareの読み取り、対象USB device nodeの読み書き、
-  USB sysfsとudev databaseの読み取り、netlink、signal、Unix domain socket、専用runtime directoryへの
-  読み書きを許可しました。
-- USBを所有するのは`px4d`です。今回の構成では`px4-ts`と`px4ctl`はprofile外から専用runtimeのIPCへ
-  接続し、USB device nodeを直接開いていません。クライアントまで同じprofileへ入れる場合は別途設計・検証が必要です。
-- firmwareとruntime directoryは専用service accountから通常のファイル権限で利用できる所有権にしてください。
-  所有権の不一致を`dac_override`や`dac_read_search`で迂回する構成は、この検証結果からは推奨しません。
-- 今回のカード試験は`px4ctl`によるdaemon direct APDUです。IFD Handlerを`pcscd`から読み込む経路は
-  AppArmor拘束下で検証していません。`pcscd`側のprofile、IFD library、runtime directoryへの許可は別途必要です。
+> [!NOTE]
+> - 検証対象はデーモン直接APDUまでである。
+> - 再検証対象: IFD / pcscd経路（`pcscd` 側のprofileやIFDライブラリへの権限付与が別途必要となる）。
 
-## USB device nodeは固定パスではない
+## USBデバイスノードの扱い
 
-`/dev/bus/usb/BBB/DDD`のbus番号とdevice番号は、抜き差しや再列挙で変わります。
-検証時に使った番号を恒久profileへコピーしないでください。
-
-USB nodeを個別に許可する場合は、profileの生成・reload直前にsysfsの`busnum`と`devnum`からnodeを求め、
-VID:PID、2機能それぞれのserial、物理USB pathを照合してください。2 nodeが同一Q3U4の期待する組であると
-確認できない場合はprofileをloadせず停止するfail-closedな構成にしてください。再接続後は同じ確認と
-profileの再生成・reloadが必要です。
+- `/dev/bus/usb/BBB/DDD` のバス番号およびデバイス番号は動的に割り当てられるため、固定パスでの記述を避ける。
+- profileの生成および再読み込みの直前に、sysfsの `busnum` および `devnum` からノード番号を取得する。
+- 取得時はVID:PIDに加え、2機能それぞれのシリアル番号および物理USBパスを照合する。
+- 2ノードが同一のPX-Q3U4であることを確認できない場合は、profileのロードを中断する（fail-closed構成）。
+- チューナーを再接続した際は、パスの再照合とprofileの再生成・再読み込みを実施する。
 
 ## Deny試験の注意
 
-USB拒否を検証するときは、`px4d`自身をprofile内でnative列挙・openさせてください。
-profile外で開いたfile descriptorを`--fd`で渡す試験では、`px4d`によるUSB node openの拒否を証明できません。
-また、firmwareの所有権や親directoryの探索権限に問題があるとUSBより先に失敗するため、deny原因は
-AppArmor audit logの対象pathまで確認してください。
+- USBアクセスの拒否を検証する際は、`px4d` 自身にprofile内でノードを探索・openさせる。
+- profile外部で開いたファイルディスクリプタを `--fd` で渡す構成では、`px4d` に対するデバイスノードopen拒否を検証できない。
+- ファームウェアの権限不足や親ディレクトリの探索権限不足があるとUSB openより前に終了するため、拒否時は監査ログの対象パスを確認する。
