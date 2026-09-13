@@ -259,6 +259,8 @@ px4d --device BASE_SERIAL --firmware PATH [--runtime-dir PATH] [--group] [--allo
 - `--allow-lnb-power`: 衛星放送受信時の LNB 15V 給電を許可します（安全のための明示的 opt-in）。
 - `--fd FD --fd FD`: Android 環境などで、ホスト側が開いた 2 つの USB ファイルディスクリプタを直接渡して起動します（この場合 `--device` は任意）。
 
+同一Linuxホスト内のlocalhost usbipでは、export元の物理USB機能とVHCI側へimportされた機能が同じlibusb contextに同一serialで現れます。この構成ではnative列挙がduplicate slotとして`INVALID_ARGUMENT`になるため、VHCI側の2 nodeを事前にopenし、`--fd FD --fd FD`で明示してください。LAN越しusbipは未検証であり、この制限が同じ形で現れるとは限りません。
+
 ### `px4-ts`（MPEG-TS 受信ツール）
 
 `px4d` に接続し、指定した受信機から MPEG-TS ストリームを受信して標準出力またはファイルへ出力します。
