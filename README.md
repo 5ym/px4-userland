@@ -65,6 +65,11 @@ sudo udevadm control --reload-rules
 
 Alpine Linux（BusyBox mdev、コールドプラグスキャンヘルパー、OpenRC 設定）での実機検証済み手順は [Alpine Linux の構成例](docs/platforms/alpine-mdev.md) を参照してください。USB ノードのパーミッションや video グループの要件は上記と同様です。
 
+#### AppArmor
+
+自作profileで`px4d`を拘束する場合のUSB node、runtime、PC/SC適用範囲に関する実機検証結果は
+[AppArmorで実行する際の注意](docs/platforms/apparmor.md)を参照してください。
+
 ## 導入方法
 
 配布アーカイブを任意のディレクトリへ展開します。Linux 向けには generic な `linux-<arch>` アーカイブは存在せず、libc およびアーキテクチャ別に以下の 4 系統が提供されます。
