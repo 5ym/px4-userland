@@ -9,7 +9,32 @@
 - **PLEX PX-Q3U4**（USB ID `0511:084a`）
 - **PLEX PX-MLT5PE**（USB ID `0511:024e`）
 - **e-Better DTV02A-5TS-P**（USB ID `0511:924e`）
-  - 上記以外の PX4 / PX5 / PX-MLT シリーズなど関連機種での動作は未確認です。
+
+### 未対応・未検証の機種
+
+以下の機種は `tsukumijima/px4_drv` が対応している機種の写しであり、`px4-userland` では未対応かつ未検証です（動作するという意味ではありません）。実機をお持ちの方による動作報告（テスター）および対応を維持できる方（メンテナ）を募集していますので、GitHub の Issues または Pull Request へお寄せください。
+
+#### PLEX
+
+| 機種 | USB ID |
+|---|---|
+| PX-W3U4 | `0511:083f` |
+| PX-W3PE4 | `0511:023f` |
+| PX-Q3PE4 | `0511:024a` |
+| PX-W3PE5 | `0511:073f` |
+| PX-Q3PE5 | `0511:074a` |
+| PX-MLT8PE | `0511:0252`（MLT8PE3）、`0511:0253`（MLT8PE5） |
+| PX-M1UR | `0511:0854` |
+| PX-S1UR | `0511:0855` |
+
+#### e-Better
+
+| 機種 | USB ID |
+|---|---|
+| DTV02-1T1S-U（px4_drv では実験的） | `0511:004b`（Digibest ISDB2056） |
+| DTV02A-1T1S-U | `0511:004b`（Digibest ISDB2056）。ロット 2309 以降は `0511:084b`（Digibest ISDB2056N） |
+| DTV02A-4TS-P | `0511:0254`（Digibest ISDB6014-4TS） |
+| DTV03A-1TU（px4_drv では実験的。ロット 2021-11 以降） | `0511:0052`（Digibest ISDBT2071） |
 
 ### 動作環境
 
