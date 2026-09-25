@@ -1,15 +1,17 @@
 # px4-userland
 
-`px4-userland` は、PLEX PX-Q3U4、PLEX PX-MLT5PE、e-Better DTV02A-5TS-P 向けのユーザー空間ドライバおよびツール群です。カーネルモジュールを使用せず、ユーザー空間からチューナーおよび内蔵 IC カードリーダーを制御し、MPEG-TS ストリームを出力します。
+`px4-userland` は、PLEX PX-Q3U4、PLEX PX-W3U4、PLEX PX-MLT5PE、e-Better DTV02A-5TS-P 向けのユーザー空間ドライバおよびツール群です。カーネルモジュールを使用せず、ユーザー空間からチューナーおよび内蔵 IC カードリーダーを制御し、MPEG-TS ストリームを出力します。
 
 ## 対応機種・動作環境
 
 ### 対応機種
 
-- **PLEX PX-Q3U4**（USB ID `0511:084a`）
-- **PLEX PX-W3U4**（USB ID `0511:083f`）。Q3U4 の片側 1 本。受信機は 4（衛星 2、地デジ 2）。hardware-verified ではない。実機報告は `scripts/w3u4-report.sh` の出力を Issue に貼る
-- **PLEX PX-MLT5PE**（USB ID `0511:024e`）
-- **e-Better DTV02A-5TS-P**（USB ID `0511:924e`）
+検証状況は機種ごとに `hardware-verified`（実機で受信・カード経路を確認済み）または `hardware-unverified`（未検証。テスター募集中）と表示します。未検証機種は、実機をお持ちの方の報告（`scripts/w3u4-report.sh` の出力を Issue へ貼る）をもって検証済みへ更新します。
+
+- **PLEX PX-Q3U4**（USB ID `0511:084a`）— hardware-verified
+- **PLEX PX-W3U4**（USB ID `0511:083f`）— hardware-unverified。Q3U4 の片側 1 本。受信機は 4（衛星 2、地デジ 2）
+- **PLEX PX-MLT5PE**（USB ID `0511:024e`）— hardware-verified（同一ハードウェアの DTV02A-5TS-P で実機検証）
+- **e-Better DTV02A-5TS-P**（USB ID `0511:924e`）— hardware-verified
 
 ### 未対応・未検証の機種
 

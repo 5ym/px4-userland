@@ -12,6 +12,7 @@ v0.17では、接続中の対象筐体を列挙する`px4d --list`を追加す�
 receiver表を出力する。あわせて通常列挙を訂正し、openまたはdescriptor取得に失敗したデバイスを、読めていない
 serialから`invalid_serial`とせず`open_failed`として報告する（`px4-usb-probe`の出力も同様に変わる）。
 device contract、IPC、`px4ctl`/`px4-ts`の挙動は変更しない。
+あわせてStableリリース基準を改訂する。手持ちの機種では10.2節の厳しい受入試験を行うが、持っていない機種は未検証であることをREADMEの対応機種一覧へ明記した上でリリースする。テスタが現れた機種は、負担にならない範囲の実機検証を依頼し、その報告をもって検証済みへ更新する。Beta公開は対応機種の追加には使わず、機能追加など不安定な変更に限定する。
 v0.16では、対象機種にPLEX PX-MLT5PE（`0511:024e`）とe-Better DTV02A-5TS-P（`0511:924e`）を追加する。
 `tsukumijima/px4_drv`はDTV02A-5TS-PをPX-MLT5PEのリブランド品として扱い、両者の差分はUSB product IDだけで
 ある（driver commit `72a807de2009c2ce376953c75687b4d45708f00e`、winusb commit
@@ -101,7 +102,7 @@ support matrixと実機検証経路は次のとおりとする。
 - Home Assistantアドオンの作成または変更。
 - PX-Q3PE4、PX-Q3PE5、PX-W3PE5、PX-MLT5U、PX-MLT8PE3、PX-MLT8PE5、ISDB6014、ISDB2056、
   DTV02A-1T1S-Uなど、Q3U4、PX-W3U4、およびMLT5系（PX-MLT5PE、DTV02A-5TS-P）以外の動作保証。
-  PX-W3U4 は実装するが hardware-verified ではない。
+  PX-W3U4 は実装するが、実機報告が得られるまでは hardware-unverified として README の対応機種一覧へ明記する。
 - 配布用Android APKまたはdtv-androidへの統合。Google TV Streamer実機検証用のad-hoc APKは試験器具として許容する。
 - B-CAS/ACASの暗号処理、ECM処理、TSのスクランブル解除。
 - ネットワーク越しの利用。IPCは同一ホスト内に限定する。
@@ -769,8 +770,8 @@ GitHub Releaseを作成せず、8つのbinary archive、対応source archive、�
 Stable公開前に、次の条件をすべて満たすこと。
 
 1. 10.1のCI、静的監査、archive manifest、checksum、licenseおよびcorresponding-source監査が成功している。
-2. 10.2のHAOS 2時間soakと10.3の実機検証対象環境での30分以上の試験を、公開する最終配布archiveそのもので完了している。
-3. 地上波・衛星、USB detach/reconnect、stop/reopen、Q3U4内蔵カード経路および反復APDUの証拠を、環境ごとに保存している。
+2. 手持ちの機種では、10.2節の厳しい受入試験（HAOS 2時間soakと10.3の実機検証対象環境での30分以上の試験）を、公開する最終配布archiveそのもので完了している。手持ちにない機種はこの項の実機試験の対象外とし、第8項のとおり扱う。
+3. 地上波・衛星、USB detach/reconnect、stop/reopen、内蔵カード経路および反復APDUの証拠を、試験した機種・環境ごとに保存している。
 4. receiver 7の既知burstは10.2.6aの比較結果を添付し、LNBは`LNB switching hardware-verified / loaded supply unverified`
    と明記している。
 5. crash、hang、use-after-free、stale lease、再接続不能、カード経路の重大な未解決issueがない。receiver 7の参照一致
@@ -779,6 +780,8 @@ Stable公開前に、次の条件をすべて満たすこと。
    release archiveの内容が一致している。
 7. Linux aarch64はnative CI build、offline test、musl/ELF/IFD/archive監査を満たしている。実機未検証は既知の
    非ブロッカーとしてsupport表示とrelease notesに明記し、実機検証済みとは表現しない。
+8. 手持ちにない機種は、READMEの対応機種一覧へ検証状況を明記した上でリリースできる。実機を試したテスタが現れたら、負担にならない範囲の検証（`scripts/w3u4-report.sh`相当の実機報告）を依頼し、その報告をもって`hardware-verified`へ更新する。報告がない間は検証済みと表現しない。
+9. Beta公開は対応機種の追加には使わない。Betaは機能追加や挙動変更など不安定な変更に限定し、機種追加は第8項の`hardware-unverified`表示を伴う通常リリースとして扱う。
 
 ## 11. Implementation increments
 
