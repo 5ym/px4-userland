@@ -8,8 +8,9 @@ together with an outer `SHA256SUMS` file.
 ## No vendored dependency in the repository source
 
 The repository source does not vendor libusb, pcsc-lite, the Android NDK, libc++/libc++abi, musl, or firmware. Native
-CMake discovers libusb and PC/SC headers from the host or from explicit build inputs. The Android build obtains the
-verified libusb source archive during the build; it is not checked into this repository.
+CMake discovers libusb and PC/SC headers from the host or from explicit build inputs. The Linux static, macOS, and
+Android release builds obtain the verified libusb source archive during the build; it is not checked into this
+repository.
 
 The source archive is made from the exact committed source ref selected by the workflow. It also contains the exact
 verified libusb 1.0.30 source archive, its `COPYING`, checksums, and `BUILD-RELINK.md`. It excludes `.git`, build outputs,
@@ -54,9 +55,13 @@ Primary license text: [libusb 1.0.30 `COPYING`](https://github.com/libusb/libusb
 The Linux archives are libc-qualified x86_64 and aarch64 packages. Their three production executables are fully static
 musl ELFs and embed libusb 1.0.30 built with udev disabled. Each package also contains a separately built PC/SC IFD
 shared object: `linux-glibc-*` uses a glibc 2.31 baseline and `linux-musl-*` uses the matching musl ABI. The IFD must
-be loaded by matching host pcscd. macOS remains Apple Silicon with host-provided dynamic libusb.
-The Linux static executables do not require host libusb or PC/SC client libraries. Linux IFD shared objects require only
-their matching libc because libstdc++ and libgcc are statically linked; macOS retains its host system `libc++` dependency.
+be loaded by matching host pcscd. The macOS archive is Apple Silicon; `px4d` embeds the same libusb 1.0.30 as static
+`libusb-1.0.a`, and all three production executables dynamically link only macOS system libraries and frameworks
+(`px4d` additionally links `libobjc`, IOKit, CoreFoundation, and Security for the libusb darwin backend). The macOS IFD
+bundle does not link libusb.
+The Linux and macOS static-libusb executables do not require host libusb or PC/SC client libraries. Linux IFD shared
+objects require only their matching libc because libstdc++ and libgcc are statically linked; macOS retains its host
+system `libc++` dependency.
 The actual `NEEDED`/dynamic dependency lists are retained in `evidence/binary-audit.json`.
 
 Only `px4d` directly requires libusb. `px4-ts` and `px4ctl` are IPC clients and must not directly require libusb. The
@@ -64,8 +69,14 @@ Linux/macOS IFD adapter also communicates with `px4d` over IPC and must not dire
 library. A host PC/SC consumer/pcscd loads the IFD adapter through the supplied reader template.
 
 The native dependency claim is verified from each built binary: Linux uses `readelf` to reject PT_INTERP/DT_NEEDED on
-production executables and to verify the matching IFD libc and glibc floor; macOS uses `otool` for host-provided dynamic
-libusb and IFD dependency restrictions.
+production executables and to verify the matching IFD libc and glibc floor; macOS uses `otool` to reject any libusb dylib
+and any dependency outside `/usr/lib/` and `/System/Library/`, and to enforce the IFD dependency restrictions.
+
+The Linux and macOS binary archives do not carry the libusb source themselves. Their prominent `DEPENDENCY-NOTICE.txt`
+identifies libusb 1.0.30, static linkage, LGPL-2.1-or-later, and the corresponding-source archive of the same candidate
+handoff, which contains the exact libusb source, its `COPYING`, verification hashes, and the Linux and macOS
+build/relink instructions in `BUILD-RELINK.md`. The same LGPL-2.1-or-later section 6 route described for Android
+applies.
 
 Primary PC/SC license reference: [pcsc-lite `COPYING`](https://github.com/LudovicRousseau/PCSC/blob/master/COPYING).
 The exact host package versions remain deployment-specific system inputs and are not copied into the native archives.

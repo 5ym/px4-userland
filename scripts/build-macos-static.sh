@@ -90,7 +90,7 @@ cmake -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DPX4_BUILD_TESTS="$tests" -DPX4_ENABLE_LIBUSB=ON \
     -DPX4_LIBUSB_INCLUDE_DIR="$prefix/include/libusb-1.0" \
     -DPX4_LIBUSB_LIBRARY="$prefix/lib/libusb-1.0.a" \
-    -DCMAKE_EXE_LINKER_FLAGS="$libs_private" \
+    -DPX4_LIBUSB_LINK_LIBRARIES="$libs_private" \
     "$@"
 cmake --build "$build"
 
@@ -107,6 +107,11 @@ for program in px4d px4-ts px4ctl; do
     printf '%s\n' "$linkage"
     if printf '%s\n' "$linkage" | grep -F 'libusb-1.0' >/dev/null; then
         printf '%s\n' "dynamic libusb dependency in $program" >&2
+        exit 1
+    fi
+    # Only px4d links libusb, so only px4d may carry its darwin frameworks.
+    if [ "$program" != px4d ] && printf '%s\n' "$linkage" | grep -F 'IOKit.framework' >/dev/null; then
+        printf '%s\n' "libusb system frameworks leaked into $program" >&2
         exit 1
     fi
 done
