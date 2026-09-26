@@ -1,9 +1,22 @@
 # px4-userland 仕様
 
-Status: Frozen v0.20 (2026-09-26)
+Status: Frozen v0.21 (2026-09-26)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+v0.21ではStable候補ごとの一律な全環境長時間再試験を廃止し、model/device profile、runtime/access path、
+feature/pathごとのqualification evidenceと、影響範囲に応じた継承・失効契約へ置き換える。releaseごとの
+最終artifact canary、変更triggerに応じたlong soak、新機種のprofile認定は必須とする。未観測のmodel × runtime ×
+access path × featureの組合せを検証済みとは推論せず、既存の品質基準とsupport claimは維持する。
+
+### v0.21 change record (2026-09-26)
+
+- 10.2、10.2.6a、10.2.7、10.3、10.4、10.5節: releaseごとの一律なSCS/HAOS各2時間および全runtime各30分の
+  再試験を、証拠軸、影響別の継承・失効、release canary、trigger付きlong soak、周期再認定へ置換した。
+- 10.2.7節: 新機種・profileはcanonical Linux x86_64で30分以上認定し、固有runtime/access pathは個別に確認する。
+- 10.3節、10.5節: support claimを観測済みのmodel/runtime/access path/featureの範囲に限定し、release recordへ
+  evidence lineageとimpact判定を残す。Linux aarch64はbuild-tested / hardware-unverifiedのまま維持する。
 
 v0.20では、macOS（darwin-arm64）のproduction executableへlibusb 1.0.30を静的リンクする。v0.19までは
 host-provided dynamic libusbを意図しており、配布した`px4d`がHomebrewのlibusb dylibを要求していた。macOS利用者に
@@ -706,6 +719,10 @@ Linux・Android・macOSを対象にする既存実装は確認できなかった
 
 ### 10.2 Q3U4 hardware acceptance on Linux
 
+以下はQ3U4の機種profileおよび該当feature/pathをhardware-verifiedとするqualification基準である。Stable releaseごとに
+全項目を再実行する要件ではない。結果は10.2.8のevidence単位で記録し、10.5の影響判定に従って継承または失効させる。
+新releaseには10.5のcanaryとtrigger付きsoakを適用する。
+
 1. `px4ctl list`が2 USB deviceを1筐体へまとめ、8 receiverと1 card readerを報告する。
 2. firmwareを両IT9305Eへloadし、再openとプロセス再起動後も初期化できる。
 3. receiver 0..7を各々open、tune、30秒capture、stop、再openできる。
@@ -730,14 +747,7 @@ Linux・Android・macOSを対象にする既存実装は確認できなかった
 14. card利用中にtunerをすべて閉じてもcard通信を継続し、tuner利用中にcardを閉じてもTSを継続する。
 15. idle、streaming、card transaction中のUSB切断が有限時間で失敗を返し、hangまたはuse-after-freeを起こさない。
 16. 再接続後に旧lease、ATR、T=1 sequence、TS端数を再利用せず、再列挙・再初期化できる。
-17. Stable候補はSCS native（Debian 13/glibc、HAOS kernel）とHAOS Alpine/musl Supervisor add-onの両方で、
-    それぞれ2時間、8 receiver、反復APDU、定期的なretune/stop/reopenを含むsoak testを行い、crash、stale lease、
-    APDU failure、RSSまたはhandle数の増加傾向を生じない。両環境は相互に代替しない。TS errorはreceiver 0--6で0とし、
-    receiver 7の既知burstは10.2.6aの参照比較を適用する。
-18. Stable候補はLatitude native Linux x86_64、SCS native、HAOS Alpine add-on、macOS、Android Termux、Android ad-hoc APKの
-    各対象環境で30分以上の試験を行う。各環境で地上波・衛星capture、stop/reopen、USB detach/reconnect、Q3U4内蔵
-    カード経路の反復APDUを確認する。SCS nativeとHAOS Alpine add-onは別々に完了させる。Linux aarch64は実機未検証のため対象外とする。
-19. 壁設備と完全に分離した開放端で0V、15V、cleanup後0Vを測定し、GPIO 11の極性と切替を確認する。
+17. 壁設備と完全に分離した開放端で0V、15V、cleanup後0Vを測定し、GPIO 11の極性と切替を確認する。
     この無負荷試験をもってLNB切替をhardware-verifiedとするが、代表負荷時の給電能力は未確認として
     `LNB switching hardware-verified / loaded supply unverified`と記録する。これはStableのブロッカーではない。
 
@@ -751,12 +761,22 @@ px4-userlandのburstが参照結果より悪化せず、追加のUSB error、que
 
 `v0.1.0 Beta`では、receiver 0--6は2時間soakでerror 0だった。receiver 7はTEI `10974`、
 `continuity_errors=453`を記録した。同一試験個体では、参照`tsukumijima/px4_drv`でも約11k TEIの署名が再現した。
-この結果は10.2.6aの既知制限の初期証拠として扱うが、Stable候補では同一条件の比較記録を改めて保存する。
-`px4-ts`はTS integrity errorをCLI exit code 8で報告する。
+この結果は10.2.6aの既知制限の初期証拠として扱う。`px4-ts`はTS integrity errorをCLI exit code 8で報告する。
+receiver 7の比較証拠は、Q3U4のstream、demux、transport、concurrencyまたはpowerに影響する変更時、および10.5の
+周期再認定時にfreshでなければならない。これらに影響しない変更では既存比較を継承できる。release recordへbaselineと
+継承または再取得の理由を記録する。
 
-### 10.2.7 MLT family hardware acceptance
+### 10.2.7 Additional Q3/MLT/1-receiver profile hardware acceptance
 
-MLT系のhardware-verified表示は、機種・環境ごとにその機種のreceiver数で次を満たした場合に限る。
+本節の共通認定は、追加されたQ3系、MLT系、1 receiverの各model/device profileに個別に適用する。各profileは
+canonical Linux x86_64で一度認定する。認定では4.1の識別・grouping、profileに定義された全receiverとsystem capability、
+firmware、tune/retune、capture、stop/reopen、status、全receiverの同時streamとdemux、適用されるcard/ATR/APDU、
+power/LNB、終了cleanupを確認し、該当機能を含む組合せを30分以上連続して動作させる。profileにない機能は未搭載または
+該当なしと記録し、検証済みとは扱わない。この共通認定だけで別OS/runtime/access pathをhardware-verifiedと主張しては
+ならない。別pathに固有の性質はtargeted evidenceとして個別に認定する。
+
+以下の1--7はMLT family固有の追加確認であり、Q3系追加機種および1 receiver profileへ一律に要求する手順ではない。
+MLT profileをhardware-verifiedとする場合、前段の共通認定に加えて次を満たす。
 
 1. `px4ctl list`が1 USB deviceを1筐体として報告し、機種固有のreceiver数とsystem capability、card readerを示す。
 2. firmwareをloadし、プロセス再起動後も再初期化できる。
@@ -767,14 +787,38 @@ MLT系のhardware-verified表示は、機種・環境ごとにその機種のrec
 6. card未挿入/挿入、ATR、reset、基本APDUが成功する。
 7. receiverを使わずにcardだけをopenしても通信でき、receiverとcardの開閉順にかかわらず5.2節の電源規則を満たす。
 
-Q3U4の10.2各項は、新機種の追加によって弱めない。v0.18で追加したQ3系、MLT系、1 receiver機種は
-hardware-unverifiedであり、対象機種ごとの実機確認を経るまでhardware-verifiedと表記しない。1 receiver機種では
-対象に存在しないISDB-Sまたはcardの項目を除き、単一TS同期、model-specific tune、capture、stop/reopen、電源、
-カード経路（reader搭載機種）を機種ごとに確認する。
+runtimeに固有のaccess pathは別のevidenceとしてtargeted確認する。例としてQ3U4のTermux 2-FDとsingle-device機種の
+1-FD、plain TS、Android USB Host APKのFD handoff、PC/SC adapter、model固有のcardまたはpower経路を扱う。
+canonical Linux認定だけからこれらのruntime/path claimを推論してはならない。
+
+Q3U4の10.2各項は、新機種の追加によって弱めない。v0.18で追加したQ3系、MLT系、1 receiver機種はhardware-unverifiedで
+あり、上記のprofileごとの認定を経るまでhardware-verifiedと表記しない。1 receiver profileでは対象に存在しないISDB-S
+またはcardの項目を除き、そのprofileのsingle TS同期、model-specific tune/capture、stop/reopen、適用される電源・card
+経路を確認する。
+
+### 10.2.8 Qualification evidence and inheritance
+
+qualification evidenceは少なくとも次の独立軸を持つ。各レコードは、実行した組合せだけを立証する。
+
+| Axis | Required value |
+|---|---|
+| Model/device profile | model名、USB ID、profile/version、device identity（必要な範囲で一貫して識別） |
+| Runtime/access path | OSとversion、libc/runtime、native libusb、HAOS add-on、Termux 1-FD/2-FD、APK、PC/SC adapter等 |
+| Feature/path | streaming、grouping、card/ATR/APDU、power/LNB、IPC/lease/retune、launcher/FD handoff等の対象と結果 |
+| Artifact/source | exact artifact名とversion、archive SHA-256、source commit、関連build/toolchain識別子 |
+| Test context | host/device identity、runtime version、実施日時、試験条件、結果、ログまたは保存先 |
+
+未観測のmodel × runtime/access path × feature/pathの直積をhardware-verifiedと主張してはならない。別runtimeの同じmodel、
+別modelの同じruntime、または未試験featureへの推論は認めない。baseline evidenceがあり、その証拠以後の変更が対象pathへ
+影響しないと10.5の表で判定できる場合に限り、evidence inheritanceを認める。影響がunknownまたはambiguousなら継承せず、
+対象pathのtargeted requalificationを行う。
 
 ### 10.3 Cross-platform support claims
 
-support表示は機能軸を混ぜず、OSごとに次の4列を持つ。
+support表示は機能軸を混ぜず、10.2.8のmodel/device profile × runtime/access path × feature/pathごとの証拠を基礎にする。
+OS単位でaggregate claimを表示する場合は、そのclaimの対象model集合、runtime/access path、feature/pathを明記する。
+その集合に含めたmodel/path/featureのすべてに根拠を要するが、未所有またはhardware-unverifiedのmodelを集合へ含める
+必要はなく、それらは集合外として扱う。集合外の機種へOS claimを推論してはならない。表示上は少なくとも次の4列を区別する。
 
 - `build-tested`: buildとoffline testsだけが成功。
 - `tuner-hardware-verified`: 実機でgrouping、firmware、ISDB-T/S capture、stop/reopen、disconnect/reconnectが成功。
@@ -782,32 +826,36 @@ support表示は機能軸を混ぜず、OSごとに次の4列を持つ。
 - `native-card-adapter-verified`: Linux/macOSでは実PC/SC consumerからresetと反復APDUが成功。
   Androidはこの列を`not applicable`とする。
 
-OS全体を`runtime-supported`と表記するには、上記の該当列を満たし、8 receiver同時stream中にnative card adapter
-（Androidはportable IPC client）から反復APDUを行って、10.2.6aを適用したTS受入条件とcard error条件を満たさなければ
-ならない。
+特定のmodel/runtime/access pathを`runtime-supported`と表記するには、その組合せの上記該当列を満たし、そのprofileの
+全receiver同時stream中にnative card adapter
+（Androidはportable IPC client）から反復APDUを行って、Q3U4では10.2本文および10.2.6a、その他profileでは10.2または
+10.2.7の該当TS受入基準を適用したTS受入条件とcard error条件を満たさなければならない。
 
-`tuner-hardware-verified`には2 USB deviceのgrouping、firmware load、ISDB-T 1 receiverとISDB-S 1 receiverの
-capture、stop/reopen、USB disconnect/reconnectを要する。`card-core-hardware-verified`にはATR、reset、反復APDU、
-card抜去/再挿入、USB disconnect/reconnectを要する。buildとoffline testだけの場合は
-`build-tested / hardware-unverified`と表記する。
+`tuner-hardware-verified`には4.1のdevice contractに定めるUSB device数とinstance grouping、firmware load、profileが
+対応する各systemのtune/capture、stop/reopen、USB disconnect/reconnectを要する。`card-core-hardware-verified`にはATR、reset、反復APDU、
+card抜去/再挿入、USB disconnect/reconnectを要する。buildとoffline testだけの場合、および該当するmodel/runtime/path/
+featureのhardware evidenceがない場合は`build-tested / hardware-unverified`と表記する。
 
-v0.4実機試験の割当は次のとおりとする。
+以下は既存support matrixのruntime/access pathと確認対象である。表自体は実機試験結果を立証しない。実施済み試験だけを、
+日時・artifact・結果とともに個別のevidence recordへ取り込み、未試験の組合せを埋めない。
 
-| Test path | Required evidence |
+| Runtime/access path | Scope to record in qualification evidence |
 |---|---|
-| Latitude 5300 / AnduinOS (x86_64) native | T/S capture、8 receiver、内蔵card経路、USB detach/reconnect、30分以上、実PC/SC consumer |
-| Linux aarch64 / GitHub Actions | native build、offline test、archive audit、実機未検証 |
-| M720q / SCS native Debian 13/glibc + HAOS kernel | T/S capture、8 receiver、内蔵card経路、USB detach/reconnect、2時間soak |
-| M720q / HAOS Alpine/musl Supervisor add-on | T/S capture、8 receiver、内蔵card経路、USB detach/reconnect、2時間soak |
-| Latitude 5300 / Alpine Docker | auxiliary build/parser smoke only; SCS、HAOS add-on、Latitude nativeの代替不可 |
-| Pixel 9a / aarch64 / Termux | 最終候補archiveの正式launcherで2 fd、T/S capture、内蔵card経路、stop/reopen、USB detach/reconnect、30分以上、process/FD/endpoint非残留、即時再起動 |
-| Google TV Streamer / armv7a / Termux | 最終候補archiveの正式launcherで2 fd、T/S capture、内蔵card経路、stop/reopen、USB detach/reconnect、30分以上、process/FD/endpoint非残留、即時再起動 |
-| Bliss OS / x86_64 / Termux | 最終候補archiveの正式launcherで2 fd、T/S capture、内蔵card経路、stop/reopen、USB detach/reconnect、30分以上、process/FD/endpoint非残留、即時再起動 |
-| Google TV Streamer / ad-hoc APK | armv7a、USB permission、2 fd wrap、T/S capture、内蔵card経路、stop/reopen、USB detach/reconnect、30分以上 |
-| M2 Mac mini / macOS | grouping、T/S capture、内蔵card経路、実PC/SC consumer、USB detach/reconnect、30分以上 |
+| Latitude 5300 / AnduinOS (x86_64) native | native libusb、T/S capture、8 receiver、内蔵card、実PC/SC consumer |
+| Linux aarch64 / GitHub Actions | native build、offline test、archive audit。hardware-unverified |
+| M720q / SCS native Debian 13/glibc + HAOS kernel | native libusb、T/S capture、8 receiver、内蔵card、PC/SC |
+| M720q / HAOS Alpine/musl Supervisor add-on | add-on内musl/libusb、T/S capture、8 receiver、内蔵card、PC/SC |
+| Latitude 5300 / Alpine Docker | auxiliary build/parser smoke。SCS、HAOS add-on、Latitude nativeの代替不可 |
+| Pixel 9a / aarch64 / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
+| Google TV Streamer / armv7a / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
+| Bliss OS / x86_64 / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
+| Google TV Streamer / ad-hoc APK | USB permission、FD wrap、T/S、内蔵card、Android USB Host path |
+| M2 Mac mini / macOS | native libusb、grouping、T/S、内蔵card、実PC/SC consumer |
 
-TermuxとAPKは同一ハードウェアでも別runtime経路として個別に合否を記録する。SCS native、HAOS Alpine add-on、
-Latitude native、Latitude Alpine Dockerは別runtime経路であり、いずれも他の要件を代替しない。
+TermuxとAPKは同一hardwareでも別access pathである。SCS native、HAOS Alpine add-on、native Linux、macOSもそれぞれ
+別runtime pathであり、証拠が直接存在するか継承条件を満たす場合以外、相互に代替しない。
+Linux aarch64はnative build、offline test、archive auditを満たしても`build-tested / hardware-unverified`を維持する。
+証拠継承または他architecture/runtimeの実機結果だけでhardware-verifiedへ昇格させてはならない。
 
 ### 10.4 Release artifacts
 
@@ -858,27 +906,76 @@ source archiveは `__pycache__/`、`.pyc`、`.pyo`、`.pyd` などのPythonバ�
 このgateの包装・manifest・checksum・binary/source archive auditは、local packaging scriptsと
 `.github/workflows/build_userland.yml`の`release-candidate` workflowとして実装済みである。workflowはtagや
 GitHub Releaseを作成せず、8つのbinary archive、対応source archive、外側`SHA256SUMS`をcandidate artifactとして
-まとめる。Stable公開時は、このcandidateで使用した最終配布archiveそのものを各対象環境で試験する。Android 3 ABIは
-正式ランチャーを各対象実機で検証するまで配布条件未達とする。Linux aarch64はarchive auditとnative CI buildを必須と
-するが、実機未検証を既知の非ブロッカーとして公開時に明記する。
+まとめる。release recordは各hardware claimについて、このcandidateのexact artifactで試験したか、従前artifactの
+evidenceを継承したかを明記する。exact-current-artifactで未試験なら未試験と記録し、過去artifactの結果を今回の直接
+試験として扱わない。Androidの各ABI/access pathは正式launcherを用いた独立したevidenceを要する。Linux aarch64は
+archive auditとnative CI buildを必須とするが、実機未検証を既知の非ブロッカーとして公開時に明記する。
 
 ### 10.5 Stable release gate
 
 Stable公開前に、次の条件をすべて満たすこと。
 
 1. 10.1のCI、静的監査、archive manifest、checksum、licenseおよびcorresponding-source監査が成功している。
-2. 手持ちの機種では、10.2節の厳しい受入試験（HAOS 2時間soakと10.3の実機検証対象環境での30分以上の試験）を、公開する最終配布archiveそのもので完了している。手持ちにない機種はこの項の実機試験の対象外とし、第8項のとおり扱う。
-3. 地上波・衛星、USB detach/reconnect、stop/reopen、内蔵カード経路および反復APDUの証拠を、試験した機種・環境ごとに保存している。
-4. receiver 7の既知burstは10.2.6aの比較結果を添付し、LNBは`LNB switching hardware-verified / loaded supply unverified`
-   と明記している。
-5. crash、hang、use-after-free、stale lease、再接続不能、カード経路の重大な未解決issueがない。receiver 7の参照一致
+2. 最終candidateが使用した8 binary archive、corresponding-source archive、outer checksumについて、10.4の全
+   auditを完了し、再現性確認を成功させる。source commit、toolchain/build inputs、static/dynamic link inventory、relink結果、
+   artifact checksum、licenseおよびsource提供条件をrelease recordに残す。
+3. 公開するfinal candidate artifactそのものを使ったhardware canaryを、少なくとも1つのmodel/runtime/access pathで
+   実施し、10分以上継続する。対象pathに適用できるlist/grouping、T/Sまたはplain TS、stop/reopen、same-lease retune、
+   status、搭載時のcard/APDU、正常終了、process/FD/USB endpoint等の残留確認を含め、該当しない項目は理由を記録する。
+   canaryは変更の影響を受ける中で最も複雑なtopologyを選ぶ。共有concurrency、card、power変更を、容易な単一T受信
+   だけで代表させてはならない。
+4. 物理USB detach/reconnectは人手で行う。対象pathへ影響する変更時または10.5.2の周期再認定ではcanary pathで
+   実施し、device再接続後の復旧を確認する。それ以外のreleaseではdetach/reconnectを要しない。必須条件の物理操作を
+   実施できない場合、その影響を受けるevidence/claimを未認定と記録する。
+5. release recordは各claimについて10.2.8のbaseline evidence、baseline以後の累積変更、impact判定、evidenceの継承または
+   失効理由、今回のfresh testを記録する。exact-current-artifactで未試験のclaimは、その事実を明記する。未観測の
+   model × runtime/access path × feature/pathをhardware-verifiedと表示しない。
+6. 10.5.1の変更分類とtriggerに従いtargeted requalificationおよびlong soakを完了する。該当triggerがないreleaseは
+   fresh long soakを要求しない。receiver 7のfresh比較条件は10.2.6aに従う。
+7. crash、hang、use-after-free、stale lease、再接続不能、カード経路の重大な未解決issueがない。receiver 7の参照一致
    burstおよび代表負荷未検証のLNBは、この項の重大な未解決issueには含めない。
-6. 公開前レビューを実施し、README、LICENSE、THIRD_PARTY_NOTICES、provenance、checksum、support表示および
+8. 公開前レビューを実施し、README、LICENSE、THIRD_PARTY_NOTICES、provenance、checksum、support表示および
    release archiveの内容が一致している。
-7. Linux aarch64はnative CI build、offline test、musl/ELF/IFD/archive監査を満たしている。実機未検証は既知の
+9. Linux aarch64はnative CI build、offline test、musl/ELF/IFD/archive監査を満たしている。実機未検証は既知の
    非ブロッカーとしてsupport表示とrelease notesに明記し、実機検証済みとは表現しない。
-8. 手持ちにない機種は、READMEの対応機種一覧へ検証状況を明記した上でリリースできる。実機を試したテスタが現れたら、負担にならない範囲の検証（`scripts/w3u4-report.sh`相当の実機報告）を依頼し、その報告をもって`hardware-verified`へ更新する。報告がない間は検証済みと表現しない。
-9. Beta公開は対応機種の追加には使わない。Betaは機能追加や挙動変更など不安定な変更に限定し、機種追加は第8項の`hardware-unverified`表示を伴う通常リリースとして扱う。
+10. 手持ちにない機種は、READMEの対応機種一覧へ検証状況を明記した上でリリースできる。実機を試したテスタが現れたら、負担にならない範囲の検証（`scripts/w3u4-report.sh`相当の実機報告）を依頼し、その報告をもって`hardware-verified`へ更新する。報告がない間は検証済みと表現しない。
+11. Beta公開は対応機種の追加には使わない。Betaは機能追加や挙動変更など不安定な変更に限定し、機種追加は第10項の`hardware-unverified`表示を伴う通常リリースとして扱う。
+
+#### 10.5.1 Change impact and evidence invalidation
+
+下表はevidence inheritanceの最低限の分類である。「対象path」は該当変更が作用するすべてのmodel/runtime/access
+path/featureを含む。表の列挙変更だけでなく、間接依存する変更も影響対象に含める。
+
+| Change class | Evidence invalidated / required fresh qualification |
+|---|---|
+| USB transport、libusb version、static/dynamic link、link options | 変更したbinary/runtimeのUSB列挙、grouping、firmware、stream、hotplug、card等のUSB依存path。transportの共有層なら全model/profileで影響を評価する。 |
+| compiler、toolchain、ABI、build flags | 再buildされた対象artifactとABI/runtime path。portable coreまたはABI境界を含む場合は依存featureをtargeted再認定する。 |
+| platform adapter、IFD/PCSC、Android launcher、FD handoff | 該当platform/access pathのadapter、card、launcher/FD機能。Termux 1-FD/2-FD、APK、PC/SCはそれぞれ独立判定する。 |
+| firmware accepted hash/format、firmware initialization | 対象profileの初期化、tune、stream、card/power初期化に依存するpath。 |
+| stream、queue、demux、concurrency、lifetime、hotplug | 対象profileの全stream topology、stop/reopen、status、cardとの並行動作、detach/reconnect。Q3U4共通影響ではreceiver 7比較もfreshにする。 |
+| card、ATR、T=1、APDU | card搭載profileのcard core、runtime adapter/IPC、tunerとの並行動作。 |
+| power、LNB、GPIO、cleanup | 対象profileのpower state、receiver/card開閉順、LNB、正常・異常終了cleanup。 |
+| IPC、wire format、lease、retune | IPC client/server双方の対象runtime、status、lease、same-lease retune、stream start/stop。 |
+| device identity/profile/frontend | 変更対象model/profileの識別、grouping、receiver mapping、frontend tune、demux、power/card該当path。別profileへ自動継承しない。 |
+| docs、license text、package metadata only | hardware evidenceを失効させない。full release auditとchecksum/license/source gateは毎回必要。 |
+
+分類に当てはまらない変更、依存範囲が不明な変更、複数分類にまたがる変更はunknown/ambiguous impactとし、継承せず、
+影響し得る最小のpath集合をtargeted requalificationする。impact判定をrelease recordへ記録する。
+
+#### 10.5.2 Long soak triggers and periodic recertification
+
+long soakは毎releaseのgateではない。stream/queue/demux/concurrency/lifetime/hotplug、card、power/LNB、USB transport、
+IPC lease/retuneに影響する変更では実施する。long-duration behaviorへ影響しないdocs、license、package metadataだけの
+変更では新たなsoakを要求しない。少なくとも6か月または6回目のStable releaseのうち先に到達する期限ごとに、代表Q3U4 topologyで
+周期再認定を行う。この再認定時にはreceiver 7のfresh reference comparisonも行う。
+
+triggerされたsoakは代表Q3U4で2時間以上行い、ISDB-T/Sを含む8 receiver混在負荷、反復status/APDU、定期的なretune/stop/reopen、
+FD数とRSSの経時傾向、正常/異常cleanupを確認する。Q3U4のTS条件は10.2のTS受入項目（5--8、13）および10.2.6aの
+受入基準を満たす。
+10.2.7は、MLT等の追加profileをtargeted再認定するときに、そのprofileのTS条件を確認する目的で参照する。
+glibcとmuslの両方に影響する共通変更はSCS native/glibcとHAOS Alpine/musl add-onの両経路でsoakする。一方のpathへ
+影響を限定できると根拠付きで判定した場合は当該経路だけをsoakする。代表Q3U4を選べない場合はsoak完了まで該当
+hardware claimを更新しない。
 
 ## 11. Implementation increments
 
