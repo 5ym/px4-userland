@@ -45,7 +45,9 @@ elif [ -n "$source_dir" ]; then
         exit 1
     fi
     mkdir -p "$work/libusb"
-    cp -R "$source_dir/." "$work/libusb/"
+    # Keep the timestamps: a plain copy makes configure.ac and the m4 inputs
+    # look newer than configure, and make would then try to rerun autoconf.
+    cp -pR "$source_dir/." "$work/libusb/"
 elif [ -n "$source_archive" ]; then
     [ -f "$source_archive" ] || { printf '%s\n' "libusb archive not found: $source_archive" >&2; exit 1; }
     cp "$source_archive" "$archive"
