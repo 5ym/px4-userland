@@ -214,10 +214,15 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
         )
     else:
         dependency_text = (
-            "dependency.libusb.linkage=dynamic\n"
-            "dependency.libusb.provider=host\n"
-            "This native archive uses host-provided dynamic libusb and system PC/SC dependencies; "
-            "no dependency is bundled. See THIRD_PARTY_NOTICES.md.\n"
+            "dependency.libusb.version=1.0.30\n"
+            "dependency.libusb.linkage=static\n"
+            "dependency.libusb.license=LGPL-2.1-or-later\n"
+            "dependency.executables=static-libusb\n"
+            f"corresponding-source-archive=px4-userland-{version}-source.tar.gz\n\n"
+            "macOS production executables statically include libusb 1.0.30 and dynamically link only macOS "
+            "system libraries and frameworks. The PC/SC IFD bundle does not link libusb and is loaded by the host "
+            "PC/SC service. The libusb source and relink recipe are not in this binary archive; obtain "
+            f"px4-userland-{version}-source.tar.gz from the same candidate handoff.\n"
         )
     notice = template.read_text(encoding="utf-8")
     notice = notice.replace("@VERSION@", version).replace("@PLATFORM@", platform)
@@ -502,8 +507,7 @@ def main() -> int:
                       "musl" if args.platform.startswith("linux-musl-") else
                       "android" if args.platform.startswith("android-") else "darwin"),
             "architecture": args.platform.rsplit("-", 1)[-1],
-            "embedded_libusb": {"version": "1.0.30", "linkage": "static"}
-                if args.platform.startswith("linux-") or args.platform.startswith("android-") else None,
+            "embedded_libusb": {"version": "1.0.30", "linkage": "static"},
             "source_ref": args.source_ref,
             "programs": ["px4d", "px4-ts", "px4ctl"],
             "production_only": True,

@@ -386,12 +386,8 @@ def verify_manifest(archive: Path, members: dict[str, tarfile.TarInfo], platform
         fail("manifest libc/architecture metadata mismatch")
     if not isinstance(manifest.get("source_ref"), str) or not manifest["source_ref"]:
         fail("manifest source_ref metadata is missing")
-    embedded = manifest.get("embedded_libusb")
-    if platform.startswith("linux-") or platform.startswith("android-"):
-        if embedded != {"version": "1.0.30", "linkage": "static"}:
-            fail("manifest embedded libusb metadata mismatch")
-    elif embedded is not None:
-        fail("unexpected embedded libusb metadata")
+    if manifest.get("embedded_libusb") != {"version": "1.0.30", "linkage": "static"}:
+        fail("manifest embedded libusb metadata mismatch")
     validate_version(str(manifest.get("version", "")))
     if sorted(manifest.get("programs", [])) != sorted(PROGRAMS):
         fail("manifest does not describe exactly the three production programs")
@@ -563,8 +559,10 @@ def audit_macho_ifd_exports(path: Path) -> None:
         fail(f"macOS IFD export set mismatch: {path}: {sorted(symbols)}")
 
 
-def audit_darwin(path: Path, logical_name: str, *, require_libusb: bool,
-                 reject_pcsc: bool = False) -> dict:
+DARWIN_SYSTEM_PREFIXES = ("/usr/lib/", "/System/Library/")
+
+
+def audit_darwin(path: Path, logical_name: str, *, reject_pcsc: bool = False) -> dict:
     dwarf_sections, nlocalsym = audit_macho_load_commands(path)
     local_metadata = audit_macho_local_metadata(path) if nlocalsym == 1 else []
     if logical_name == DARWIN_IFD_ARTIFACT:
@@ -584,15 +582,18 @@ def audit_darwin(path: Path, logical_name: str, *, require_libusb: bool,
         lines = lines[1:]
     dependencies = [line.split(" (", 1)[0] for line in lines]
     logical_dependencies = sorted({PurePosixPath(dependency).name for dependency in dependencies})
-    if require_libusb and not any("libusb-1.0" in dependency for dependency in logical_dependencies):
-        fail(f"dynamic libusb is missing from {path}")
-    if not require_libusb and any("libusb-1.0" in dependency for dependency in logical_dependencies):
+    # libusb is statically linked into px4d; no macOS artifact may load it.
+    if any("libusb-1.0" in dependency for dependency in logical_dependencies):
         fail(f"unexpected direct dynamic libusb dependency: {path}")
     if reject_pcsc and any("pcsc" in dependency.lower() for dependency in logical_dependencies):
         fail(f"unexpected direct PC/SC client dependency: {path}")
     if any(dependency.startswith("@loader_path/") or dependency.startswith("@rpath/")
            for dependency in dependencies):
         fail(f"bundled/rpath dependency is forbidden: {path}")
+    host_dependencies = [dependency for dependency in dependencies
+                         if not dependency.startswith(DARWIN_SYSTEM_PREFIXES)]
+    if host_dependencies:
+        fail(f"non-system macOS dependency is forbidden: {path}: {host_dependencies}")
     stable_install_id = None if own_id is None else (own_id if own_id.startswith("@") else PurePosixPath(own_id).name)
     return {"artifact": logical_name, "format": "Mach-O", "install_id": stable_install_id,
             "dependencies": logical_dependencies, "dwarf_sections": dwarf_sections,
@@ -679,7 +680,7 @@ def audit_binaries(args: argparse.Namespace) -> dict:
             evidence = audit_linux(path, program, platform=args.platform, shared=False,
                                    require_libusb=program == "px4d", reject_build_id=program == "px4d")
         else:
-            evidence = audit_darwin(path, program, require_libusb=program == "px4d")
+            evidence = audit_darwin(path, program)
         evidence["sha256"] = sha256(path)
         result["programs"].append(evidence)
 
@@ -701,7 +702,7 @@ def audit_binaries(args: argparse.Namespace) -> dict:
             fail(f"missing macOS IFD bundle executable: {path}")
         evidence = audit_darwin(
             path, "ifd/px4-userland-ifd.bundle/Contents/MacOS/libpx4-userland-ifd.dylib",
-            require_libusb=False, reject_pcsc=True)
+            reject_pcsc=True)
         evidence["sha256"] = sha256(path)
         result["extra"].append(evidence)
 
@@ -816,18 +817,17 @@ def audit_binary_archive(args: argparse.Namespace) -> dict:
             fail("Android binary evidence NDK revision does not match source.properties")
         if fields.get("dependency.ndk.revision") != android_evidence["ndk_revision"]:
             fail("Android binary evidence NDK revision does not match dependency notice")
-    elif args.platform.startswith("linux-"):
-        fields = notice_fields(notice)
-        if fields.get("dependency.libusb.linkage") != "static" or fields.get("dependency.libusb.version") != "1.0.30":
-            fail("Linux dependency notice does not describe static pinned libusb")
-        if fields.get("dependency.libc") != ("glibc" if args.platform.startswith("linux-glibc") else "musl"):
-            fail("Linux dependency notice libc mismatch")
-        if fields.get("corresponding-source-archive") != f"px4-userland-{manifest['version']}-source.tar.gz":
-            fail("Linux dependency notice must point to the separately published source archive")
     else:
         fields = notice_fields(notice)
-        if fields.get("dependency.libusb.linkage") != "dynamic" or fields.get("dependency.libusb.provider") != "host":
-            fail("native dependency notice does not describe host-provided dynamic libusb")
+        if (fields.get("dependency.libusb.linkage") != "static" or
+                fields.get("dependency.libusb.version") != "1.0.30" or
+                fields.get("dependency.libusb.license") != "LGPL-2.1-or-later"):
+            fail("native dependency notice does not describe static pinned libusb")
+        if args.platform.startswith("linux-") and \
+                fields.get("dependency.libc") != ("glibc" if args.platform.startswith("linux-glibc") else "musl"):
+            fail("Linux dependency notice libc mismatch")
+        if fields.get("corresponding-source-archive") != f"px4-userland-{manifest['version']}-source.tar.gz":
+            fail("native dependency notice must point to the separately published source archive")
     verify_checksums(args.archive.resolve(), members)
     return {"archive": str(args.archive.resolve()), "platform": args.platform, "members": sorted(members), "manifest": manifest}
 
@@ -851,6 +851,7 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
         "repository/THIRD_PARTY_NOTICES.md",
         "repository/scripts/build-linux-static.sh",
         "repository/scripts/build-linux-ifd.sh",
+        "repository/scripts/build-macos-static.sh",
         "repository/scripts/test-static-relink.sh",
         "repository/packaging/REBUILD.md.in",
     }
@@ -954,6 +955,7 @@ def self_test() -> int:
             "DEPENDENCY-NOTICE.txt": (
                 b"dependency.libusb.version=1.0.30\n"
                 b"dependency.libusb.linkage=static\n"
+                b"dependency.libusb.license=LGPL-2.1-or-later\n"
                 b"dependency.libc=musl\n"
                 b"dependency.executables=static-musl\n"
                 b"corresponding-source-archive=px4-userland-0.1.0-source.tar.gz\n"
