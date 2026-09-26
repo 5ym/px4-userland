@@ -49,11 +49,13 @@ LINUX_TARGETS = {
 }
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 LIBUSB_SHA256 = "fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf"
+LIBUSB_COPYING_SHA256 = "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a"
 COMMON = {
     "LICENSE",
     "README.md",
     "THIRD_PARTY_NOTICES.md",
     "DEPENDENCY-NOTICE.txt",
+    "libusb/COPYING",
     "manifest.json",
     "SHA256SUMS",
     "evidence/binary-audit.json",
@@ -775,12 +777,16 @@ def audit_binary_archive(args: argparse.Namespace) -> dict:
             "reader.conf.d/px4-userland.conf",
         }
     else:
-        expected |= {"libusb/COPYING", "ndk/NOTICE", "ndk/NOTICE.toolchain", "ndk/source.properties"}
+        expected |= {"ndk/NOTICE", "ndk/NOTICE.toolchain", "ndk/source.properties"}
         expected.add(TERMUX_LAUNCHER)
         for program in PROGRAMS:
             expected.add(f"evidence/inventory/{program}-static-archives.tsv")
     if set(members) != expected:
         fail(f"archive member allowlist mismatch; unexpected={sorted(set(members)-expected)}, missing={sorted(expected-set(members))}")
+    if members["libusb/COPYING"].mode != 0o644:
+        fail(f"binary archive libusb/COPYING must have mode 644, got {members['libusb/COPYING'].mode:o}")
+    if hashlib.sha256(read_archive_file(args.archive.resolve(), "libusb/COPYING")).hexdigest() != LIBUSB_COPYING_SHA256:
+        fail("binary archive libusb/COPYING does not match the verified libusb 1.0.30 license")
     verify_linux_mdev_modes({name: member.mode for name, member in members.items()}, args.platform)
     if args.platform.startswith("android"):
         audit_termux_launcher(read_archive_file(args.archive.resolve(), TERMUX_LAUNCHER),
@@ -952,6 +958,7 @@ def self_test() -> int:
             "LICENSE": b"license\n",
             "README.md": b"readme\n",
             "THIRD_PARTY_NOTICES.md": b"notices\n",
+            "libusb/COPYING": (Path(__file__).resolve().parents[1] / "packaging/libusb/COPYING").read_bytes(),
             "DEPENDENCY-NOTICE.txt": (
                 b"dependency.libusb.version=1.0.30\n"
                 b"dependency.libusb.linkage=static\n"
@@ -971,8 +978,15 @@ def self_test() -> int:
             **binary_payloads,
         }
 
-        def write_test_archive(path: Path, evidence: dict, mode_overrides: dict[str, int] | None = None) -> None:
+        def write_test_archive(path: Path, evidence: dict, mode_overrides: dict[str, int] | None = None,
+                               file_overrides: dict[str, bytes | None] | None = None) -> None:
             files = dict(base_files)
+            if file_overrides:
+                for name, payload in file_overrides.items():
+                    if payload is None:
+                        files.pop(name, None)
+                    else:
+                        files[name] = payload
             files["evidence/binary-audit.json"] = (
                 json.dumps(evidence, indent=2, sort_keys=True) + "\n"
             ).encode("utf-8")
@@ -1069,6 +1083,16 @@ def self_test() -> int:
             else:
                 fail(f"invalid mdev mode archive self-test did not fail: {name}")
 
+        invalid_license_mode_archive = root / "invalid-libusb-copying-mode.tar.gz"
+        write_test_archive(invalid_license_mode_archive, valid_evidence,
+                           {"libusb/COPYING": 0o600})
+        try:
+            audit_test_archive(invalid_license_mode_archive)
+        except AuditError:
+            pass
+        else:
+            fail("invalid libusb/COPYING mode archive self-test did not fail")
+
         for section_mode in ("debug", "zdebug", "symtab", "build-id-px4d"):
             try:
                 audit_test_archive(valid, section_mode)
@@ -1118,7 +1142,18 @@ def self_test() -> int:
         duplicate_program_archive.parent.mkdir()
         write_test_archive(duplicate_program_archive, duplicate_program)
         expect_archive_rejected(duplicate_program_archive, "duplicate program artifact")
-    print("artifact audit self-test: safe regular member accepted, traversal and archive evidence tampering rejected")
+
+        missing_license_archive = root / "missing-license" / archive_name
+        missing_license_archive.parent.mkdir()
+        write_test_archive(missing_license_archive, valid_evidence, file_overrides={"libusb/COPYING": None})
+        expect_archive_rejected(missing_license_archive, "archive missing libusb/COPYING")
+
+        tampered_license_archive = root / "tampered-license" / archive_name
+        tampered_license_archive.parent.mkdir()
+        write_test_archive(tampered_license_archive, valid_evidence,
+                           file_overrides={"libusb/COPYING": base_files["libusb/COPYING"] + b"tampered\n"})
+        expect_archive_rejected(tampered_license_archive, "tampered libusb/COPYING")
+    print("artifact audit self-test: traversal, evidence, missing license, and license tampering rejected")
     return 0
 
 

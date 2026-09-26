@@ -16,6 +16,8 @@ exact source、license、notice、build/relink obligationsへ切り替える（7
   macOS system（`/usr/lib/`、`/System/Library/`）以外のdependencyを持たないことを検証する。IFD bundleはlibusbを
   linkしないまま変えない。libusbのexact source、notice、relink instructionsはLinuxと同じ対応source archiveで提供し、
   relinkはmacOS上でもCIで検証する。
+- 10.4節: Linux、macOS、Androidの全binary archiveに、検証済みlibusb 1.0.30のexact `libusb/COPYING`を含める。
+  binary noticeでこの同梱を明示し、別個のcorresponding-source archiveはexact sourceとbuild/relink materialsを提供する。
 
 v0.19では、同一lease内の再選局（same-lease retune）を許す。`STOP_STREAM`で`consumed`になったleaseでも
 `TUNE`成功後に`START_STREAM`を再実行できる。wire形式は変えない。`ATTACH_STREAM`のnonceは`ACQUIRE`が
@@ -822,7 +824,8 @@ Latitude native、Latitude Alpine Dockerは別runtime経路であり、いずれ
 | `px4-userland-<version>-android-armv7a.tar.gz` | Android API 24+、Bionic armv7a、Termux/Google TV用 |
 | `px4-userland-<version>-android-x86_64.tar.gz` | Android API 24+、Bionic x86_64、Termux/Bliss OS用 |
 
-各archiveは該当platformの`px4d`、`px4-ts`、`px4ctl`、利用可能なnative card adapter、GPL license、READMEを含む。
+各archiveは該当platformの`px4d`、`px4-ts`、`px4ctl`、利用可能なnative card adapter、GPL license、README、検証済み
+libusb 1.0.30のexact `libusb/COPYING`を含む。license textは追跡対象のpackaging materialからofflineで包装し、hashを検査する。
 Android archiveは既存の3つのELFに加え、libusbをリンクしないシェルランチャー `px4-termux` を含む。既存3 ELFの
 inventory、LGPL、NDK、corresponding-source、relink監査は弱めない。ランチャーはELF/static-link inventoryの
 対象外であることを監査上明示する。
@@ -832,10 +835,10 @@ Android版とmacOS版のlibusbもstatic linkとし、macOSの3実行ファイル
 mirakcはどのrelease artifactにも含めない。
 source archiveは `__pycache__/`、`.pyc`、`.pyo`、`.pyd` などのPythonバイトコードを含めない。
 
-Android binary release gateは次の全項目を満たすまで未完成とする。
+全対応platform共通のbinary archive release gateは次の全項目を満たすまで未完成とする。
 
-1. 各Android binary archiveのrootにGPL license (`LICENSE`)、libusb LGPL license/COPYING、static libusb 1.0.30と
-   NDK runtimeを明示するprominent plain-text notice、`THIRD_PARTY_NOTICES.md`、`README.md`を含める。
+1. 各binary archiveにGPL license (`LICENSE`)、exact libusb LGPL license/COPYING、prominent plain-text notice、
+   `THIRD_PARTY_NOTICES.md`、`README.md`を含める。Android noticeはstatic libusb 1.0.30とNDK runtimeも明示する。
 2. 同じGitHub Release pageにcorresponding-source archiveをbinary archiveと同行させ、exact px4-userland source、
    binaryに使ったexact libusb source、各sourceの検証hash、build/relink instructionsを含める。GitHub自動source
    archiveだけでは、downloaded libusb sourceがないためこの要件を満たさない。
@@ -850,7 +853,7 @@ Android binary release gateは次の全項目を満たすまで未完成とす�
    macOS system以外のdependencyがないことを検証する。
 6. Linux/macOS static libusbのexact source、license text、notice、build/relink instructionsは対応source archiveへ含める。
    Linux/macOS binary archiveの`DEPENDENCY-NOTICE.txt`はstatic libusb 1.0.30、LGPL-2.1-or-later、対応source archive名を
-   明示する。
+   明示し、全platformのbinary archiveで`libusb/COPYING`が検証済みexact license textと一致することを監査する。
 
 このgateの包装・manifest・checksum・binary/source archive auditは、local packaging scriptsと
 `.github/workflows/build_userland.yml`の`release-candidate` workflowとして実装済みである。workflowはtagや

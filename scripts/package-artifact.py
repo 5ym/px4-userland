@@ -25,6 +25,7 @@ _audit = importlib.util.module_from_spec(_audit_spec)
 _audit_spec.loader.exec_module(_audit)
 AuditError = _audit.AuditError
 LIBUSB_SHA256 = _audit.LIBUSB_SHA256
+LIBUSB_COPYING_SHA256 = _audit.LIBUSB_COPYING_SHA256
 PLATFORMS = _audit.PLATFORMS
 PROGRAMS = _audit.PROGRAMS
 TERMUX_LAUNCHER = _audit.TERMUX_LAUNCHER
@@ -159,9 +160,9 @@ def verify_darwin_stage_runtime(stage: Path) -> None:
         run([str(stage / program), "--help"])
 
 
-def verify_pinned_libusb(archive: Path, stage: Path) -> None:
+def verify_pinned_libusb(archive: Path) -> None:
     if archive.name != "libusb-1.0.30.tar.bz2" or sha256(archive) != LIBUSB_SHA256:
-        fail("Android requires the exact verified libusb-1.0.30 source archive")
+        fail("expected the exact verified libusb-1.0.30 source archive")
     try:
         with tarfile.open(archive, "r:bz2") as stream:
             names = []
@@ -174,10 +175,23 @@ def verify_pinned_libusb(archive: Path, stage: Path) -> None:
             copying = stream.extractfile(stream.getmember("libusb-1.0.30/COPYING"))
             if copying is None:
                 fail("cannot extract libusb COPYING")
-            (stage / "libusb").mkdir()
-            write_text(stage / "libusb" / "COPYING", copying.read().decode("utf-8"))
-    except (OSError, tarfile.TarError, UnicodeDecodeError) as error:
+            if sha256_bytes(copying.read()) != LIBUSB_COPYING_SHA256:
+                fail("verified libusb archive COPYING does not match the pinned license text")
+    except (OSError, tarfile.TarError) as error:
         fail(f"cannot inspect verified libusb archive: {error}")
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def copy_libusb_license(repo_root: Path, stage: Path) -> None:
+    source = repo_root / "packaging" / "libusb" / "COPYING"
+    if not source.is_file() or source.is_symlink() or sha256(source) != LIBUSB_COPYING_SHA256:
+        fail("packaging/libusb/COPYING is missing or differs from the verified libusb 1.0.30 license")
+    staged_copying = stage / "libusb" / "COPYING"
+    copy_regular(source, staged_copying)
+    staged_copying.chmod(0o644)
 
 
 def render_dependency_notice(repo_root: Path, version: str, platform: str,
@@ -258,7 +272,7 @@ def self_test_android_notice_and_archive(repo_root: Path) -> None:
             write_text(stage / program, "synthetic Android ELF\n")
             (stage / program).chmod(0o755)
         write_text(stage / "DEPENDENCY-NOTICE.txt", notice)
-        write_text(stage / "libusb" / "COPYING", "LGPL-2.1-or-later\n")
+        copy_libusb_license(repo_root, stage)
         write_text(stage / "ndk" / "NOTICE", "NDK notice\n")
         write_text(stage / "ndk" / "NOTICE.toolchain", "toolchain notice\n")
         write_text(stage / "ndk" / "source.properties", f"Pkg.Revision = {revision}\n")
@@ -371,13 +385,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_test:
         if args.libusb_source_archive:
-            with tempfile.TemporaryDirectory(prefix="px4-real-libusb-test-") as temporary:
-                stage = Path(temporary) / "stage"
-                stage.mkdir()
-                verify_pinned_libusb(args.libusb_source_archive.resolve(), stage)
-                if not (stage / "libusb" / "COPYING").is_file():
-                    fail("real libusb material extraction did not produce COPYING")
-            print("real pinned libusb material extraction: PASS")
+            verify_pinned_libusb(args.libusb_source_archive.resolve())
+            print("real pinned libusb source and COPYING verification: PASS")
             return 0
         with tempfile.TemporaryDirectory(prefix="px4-libusb-test-") as temporary:
             version_root = Path(temporary) / "version"
@@ -405,7 +414,7 @@ def main() -> int:
                 if validate_libusb_member(members[0]) or not validate_libusb_member(members[1]):
                     fail("libusb directory-entry self-test failed")
             try:
-                verify_pinned_libusb(archive, Path(temporary) / "stage")
+                verify_pinned_libusb(archive)
             except Exception as error:  # SHA rejection is the production boundary under test.
                 if "exact verified" not in str(error):
                     raise
@@ -438,6 +447,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="px4-package-") as temporary:
         stage = Path(temporary) / "stage"
         stage.mkdir()
+        copy_libusb_license(args.repo_root.resolve(), stage)
         for name in ("LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"):
             copy_regular(args.repo_root / name, stage / name)
         binary_root = (args.static_build_dir if args.platform.startswith("linux-") else args.build_dir).resolve()
@@ -467,7 +477,7 @@ def main() -> int:
             copy_regular(args.repo_root / "packaging" / "termux" / TERMUX_LAUNCHER,
                          stage / TERMUX_LAUNCHER)
             (stage / TERMUX_LAUNCHER).chmod(0o755)
-            verify_pinned_libusb(args.libusb_source_archive.resolve(), stage)
+            verify_pinned_libusb(args.libusb_source_archive.resolve())
             ndk = args.ndk_root.resolve()
             properties = ndk / "source.properties"
             revision = next((line.split("=", 1)[1].strip() for line in properties.read_text().splitlines()

@@ -16,6 +16,13 @@ The source archive is made from the exact committed source ref selected by the w
 verified libusb 1.0.30 source archive, its `COPYING`, checksums, and `BUILD-RELINK.md`. It excludes `.git`, build outputs,
 firmware, APK/add-on material, and vendor drivers.
 
+## libusb license copy in binary archives
+
+Every Linux, macOS, and Android binary archive includes the exact libusb 1.0.30 license text at `libusb/COPYING`, verified
+against the pinned SHA-256.
+
+Primary license text: [libusb 1.0.30 `COPYING`](https://github.com/libusb/libusb/blob/v1.0.30/COPYING).
+
 ## Android binary archives
 
 The Android archives are API 24+ Bionic builds for `aarch64`, `armv7a`, and `x86_64`. libusb 1.0.30 is statically linked as
@@ -24,7 +31,6 @@ The Android archives are API 24+ Bionic builds for `aarch64`, `armv7a`, and `x86
 - the architecture-independent `px4-termux` shell launcher; it is audited as a shell artifact and is not an ELF or
   static-link inventory member;
 
-- `libusb/COPYING`;
 - the exact NDK `source.properties` revision used by the build;
 - NDK `NOTICE` and `NOTICE.toolchain`;
 - a prominent `DEPENDENCY-NOTICE.txt` identifying libusb 1.0.30, static linkage, LGPL-2.1-or-later, the NDK revision and
@@ -48,8 +54,6 @@ hashes, and `BUILD-RELINK.md`. libusb's LGPL terms remain applicable; this contr
 converted to GPL under LGPL section 3. The complete px4-userland source is GPL-2.0-only and is rebuildable, so separate
 application object files are not required as a relinkable deliverable under this contract.
 
-Primary license text: [libusb 1.0.30 `COPYING`](https://github.com/libusb/libusb/blob/v1.0.30/COPYING).
-
 ## Linux and macOS native archives
 
 The Linux archives are libc-qualified x86_64 and aarch64 packages. Their three production executables are fully static
@@ -72,11 +76,12 @@ The native dependency claim is verified from each built binary: Linux uses `read
 production executables and to verify the matching IFD libc and glibc floor; macOS uses `otool` to reject any libusb dylib
 and any dependency outside `/usr/lib/` and `/System/Library/`, and to enforce the IFD dependency restrictions.
 
-The Linux and macOS binary archives do not carry the libusb source themselves. Their prominent `DEPENDENCY-NOTICE.txt`
-identifies libusb 1.0.30, static linkage, LGPL-2.1-or-later, and the corresponding-source archive of the same candidate
-handoff, which contains the exact libusb source, its `COPYING`, verification hashes, and the Linux and macOS
-build/relink instructions in `BUILD-RELINK.md`. The same LGPL-2.1-or-later section 6 route described for Android
-applies.
+The Linux and macOS binary archives include `libusb/COPYING` but do not carry the libusb source themselves. Their prominent
+`DEPENDENCY-NOTICE.txt` identifies libusb 1.0.30, static linkage, LGPL-2.1-or-later, and the corresponding-source archive of
+the same candidate handoff, which contains the exact libusb source, verification hashes, and the Linux and macOS
+build/relink instructions in `BUILD-RELINK.md`. The license copy in every binary archive supplies the license text; the
+separate source archive supplies the exact source and source/relink materials. Both parts of the LGPL-2.1-or-later section 6
+route apply.
 
 Primary PC/SC license reference: [pcsc-lite `COPYING`](https://github.com/LudovicRousseau/PCSC/blob/master/COPYING).
 The exact host package versions remain deployment-specific system inputs and are not copied into the native archives.
