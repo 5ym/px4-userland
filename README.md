@@ -51,14 +51,17 @@
 
 機能軸別の対応状況は下表のとおりです（SPEC 10.3 準拠）。
 
-| OS / 環境 | build-tested | tuner-hardware-verified | card-core-hardware-verified | native-card-adapter-verified | 備考 |
-|---|:---:|:---:|:---:|:---:|---|
-| Linux x86_64 | 完了 | 検証済み | 検証済み | 検証済み | 完全静的CLI + glibc/musl別IFD Handler |
-| Linux aarch64 | 完了 | 未検証 | 未検証 | 未検証 | build-tested / hardware-unverified（実機物理試験未実施） |
-| macOS arm64 | 完了 | 検証済み | 検証済み | 検証済み | Apple Silicon（PC/SC IFD bundle含む） |
-| Android Termux（aarch64 / armv7a / x86_64） | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象） |
-| Android ad-hoc APK | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 内部試験器具（配布物に含まれません） |
-| Windows | — | — | — | — | 非対応 / 対象外（out of scope） |
+| OS / 環境 | 対象model/profile | build-tested | tuner-hardware-verified | card-core-hardware-verified | native-card-adapter-verified | 備考 |
+|---|---|:---:|:---:|:---:|:---:|---|
+| Linux x86_64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | 完全静的CLI + glibc/musl別IFD Handler |
+| Linux x86_64 | DTV02A-5TS-P実機（PX-MLT5PEと同一のMLT5 profile） | 完了 | 検証済み | 検証済み | 未検証 | [PR #5](https://github.com/Khronos31/px4-userland/pull/5)：Ubuntu 26.04 amd64で5 tunerの地上波・BS/CS TSと内蔵カードリーダー利用を確認。IFD/PCSC経路は未確認。 |
+| Linux aarch64 | 全model/profile | 完了 | 未検証 | 未検証 | 未検証 | build-tested / hardware-unverified（すべて実機未検証） |
+| macOS arm64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | Apple Silicon（PC/SC IFD bundle含む） |
+| Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象） |
+| Android ad-hoc APK | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 内部試験器具（配布物に含まれません） |
+| Windows | — | — | — | — | — | 非対応 / 対象外（out of scope） |
+
+各claimは、明記したmodel/profile × runtime/access path × featureにだけ適用されます。別のmodel/profile、runtime/access path、featureへ検証結果を推論しません。表に記載のない組合せはverified claimの対象外です。
 
 ※ Linux aarch64 配布物は CI の build / artifact 監査のみ完了しており、チューナー・カード・IFD の実機検証は未実施（`build-tested / hardware-unverified`）です。glibc / musl ともに実機物理試験は実施していません（過去環境での検証履歴については [OS・環境別の検証結果](docs/platforms/validation-results.md) を参照）。
 ※ Android 向けには Termux 用アーカイブ（実行ファイルおよび `px4-termux`）のみを提供しており、配布用 APK は提供していません。

@@ -107,11 +107,12 @@ and the outer `SHA256SUMS`:
 - `px4-userland-<version>-source.tar.gz`.
 
 This artifact is a candidate handoff, not a Git tag or GitHub Release. Stable acceptance is described in [`SPEC.md`](SPEC.md):
-the final archives themselves must pass the HAOS 2-hour soak and the 30-minute-or-longer target-environment tests, including
-terrestrial/satellite capture, stop/reopen, USB detach/reconnect, and the Q3U4 internal card path. The receiver 7 reference
-comparison and the unloaded-only LNB limitation are recorded as specified there. Stable publication also requires no major
-unresolved issue and a pre-publication review. The Linux aarch64 archive remains `build-tested / hardware-unverified` and
-its lack of hardware validation is a known non-blocking limitation.
+the exact final candidate artifact must pass a hardware canary lasting at least 10 minutes for every Stable release. Targeted
+requalification and a long soak are required when triggered by the change-impact rules or when periodic recertification is due;
+they are not blanket per-release requirements. The release record identifies evidence lineage, impact decisions, and which
+evidence is fresh, inherited, or expired. Receiver 7 reference comparison follows the freshness rules in SPEC 10.2.6a.
+Stable publication also requires no major unresolved issue and a pre-publication review. The Linux aarch64 archive remains
+`build-tested / hardware-unverified`; its lack of hardware validation is a known non-blocking limitation.
 
 ## CI-only actions
 
