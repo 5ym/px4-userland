@@ -2,6 +2,37 @@
 
 本ドキュメントは特定revisionにおける実測記録であり、将来版やすべての実行環境における動作を保証するものではありません。
 
+## 2026-09-29 PX-M1UR 認定途中（v0.1.7）
+
+Latitude 5300 / AnduinOS 2.0.3（Linux x86_64 / glibc 2.43）で、PX-M1UR `0511:0854` を
+v0.1.7の正式Linux glibc x86_64 archive（source commit
+`b7685ad9940e278bdb0809dec4cc92247b8844ec`、archive SHA-256
+`b137938e778b2dccc0b9a1f1ede14040bbc94826d187e5a424f740c4d9ca2acd`）から実測した。
+この記録は認定完了や、他OS・他architectureへのサポート主張ではない。
+
+- receiver 0のISDB-T 527143 kHzを正式`px4-ts`で単一の連続1800秒取得。20,667,610 packets、
+  3,885,510,680 bytes、sync/TEI/continuity/queue-drop/USB errorsはすべて0。取得中のdirect APDUも成功した。
+  これ以前の別の5分試行ではcontinuity errorが1件あり、原因未解明の失敗として保持する。
+- ISDB-TとISDB-S（1318000 kHz、slot 0、LNB 0V）の短時間取得、同一leaseのT→S→T→S→T、
+  card抜去・再挿入、T/S取得中のnative PC/SCによるATR・APDU・resetを確認した。
+- 壁設備から分離した開放端で、`px4d --allow-lnb-power`と`px4-ts --lnb-voltage 15`を指定しても
+  30秒間0Vのままであった。計器は別途乾電池で1.5Vを示した。無信号のためtune自体はtimeoutした。
+  この測定はPX-M1URのLNB 15V出力を立証しない。参照ドライバでもM1URの給電callbackは無効であり、
+  SPEC v0.22では15V出力を対応範囲から除外した。
+- 現行v0.1.7コードは、opt-in時にPX-M1URの15V要求を拒否せずGPIO 11を書き込むためSPEC v0.22と
+  不一致である。`--allow-lnb-power`あり・なし双方の否定系テストと修正後の実機確認、USB物理切断・再接続、
+  最終artifactのcanaryを残す。これらが完了するまでPX-M1URはhardware-verifiedとしない。
+
+参照ドライバ: [Linux M1UR source](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/m1ur_device.c)、
+[WinUSB M1UR source](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/winusb/src/DriverHost_PX4/isdb2056_device.cpp)。
+
+同じ参照revisionのLinux driverでは、DTV02-1T1S-U / DTV02A-1T1S-Uに対応する
+[ISDB2056 / ISDB2056N](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/isdb2056_device.c)も
+LNB setterが無効で、GPIO 11初期化は無効化されている。
+[S1UR / ISDBT2071](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/s1ur_device.c)は
+地上波専用でGPIO 11初期化経路を持たない。これらは参照実装との一致を示すだけで、手元にない機種の
+実機電圧・受信動作を確認したことにはならない。
+
 ## 2026-09-05 共通回帰
 
 | 環境 | arch/libc | revision | 確認内容 |

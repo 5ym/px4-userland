@@ -638,6 +638,15 @@ Result<void> It930xController::configure_idle_gpio_locked(BoardLayout layout) no
             if (!written) return written;
         }
     }
+    // Single-receiver enclosures do not drive the LNB supply: M1UR/ISDB2056
+    // leave GPIO 11 setup under #if 0 in px4_drv, and S1UR/ISDBT2071 has no
+    // GPIO 11 block at all. Skip mode/enable/output writes so no LNB GPIO is
+    // configured, driven, or read back across initialization, 0 V use,
+    // rollback, or shutdown. Q3U4 and MLT profiles retain the established
+    // behavior.
+    if (layout == BoardLayout::single_receiver) {
+        return Result<void>::success();
+    }
     const auto gpio11_mode = write(Q3U4Register::gpio11_mode, 1U);
     if (!gpio11_mode) {
         return gpio11_mode;
@@ -1211,6 +1220,11 @@ Result<void> It930xController::verify_q3u4_state_locked(BoardLayout layout) noex
             ByteView{one.data(), one.size()});
         !result) {
         return result;
+    }
+    // Single-receiver enclosures never configure GPIO 11; do not read it back
+    // as part of state verification because the read assumes prior setup.
+    if (layout == BoardLayout::single_receiver) {
+        return Result<void>::success();
     }
     return verify_exact(static_cast<std::uint32_t>(Q3U4Register::gpio11_output),
                         ByteView{zero.data(), zero.size()});

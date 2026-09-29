@@ -1,9 +1,28 @@
 # px4-userland 仕様
 
-Status: Frozen v0.21 (2026-09-26)
+Status: Frozen v0.22 (2026-09-29)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+v0.22ではsingle receiver機種のLNB 15V給電を対応profileから除外する。PX-M1URの実機開放端測定は
+0Vのままであり、参照`px4_drv`ではPX-M1UR・ISDB2056/ISDB2056NのLNB setterが無効、S1UR/ISDBT2071
+は地上波専用で、これらの機種のGPIO 11給電制御も有効化されていない。これは実測と参照実装に基づく
+サポート判断であり、未実測機種の物理的な回路能力まで証明するものではない。現行v0.1.7の実装はこの
+契約に未対応で、T/S兼用single receiverのopt-in時15V要求を受け付けてGPIO 11を書き込むため、修正と
+否定系試験が完了するまで当該機種のLNB給電を認定しない。
+10.5.2のlong soak条件は変更しない。
+
+### v0.22 change record (2026-09-29)
+
+- 3.1、4.2、5.2、10.2.7節: PX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-UのISDB-S受信は
+  LNB 0Vのみを対応範囲とし、15V要求はdaemonの`--allow-lnb-power`の有無にかかわらず、
+  LNB用GPIOへの書込み前に`UNSUPPORTED`で拒否する。全single receiver機種ではGPIO 11を操作しない。
+  S1UR/DTV03A-1TUはISDB-S要求自体を拒否する。外部給電が必要な設備は別途用意する。
+- 4.2節: M1URのカード搭載は部分実測されたため、「カードの有無が不明」から「profile認定までは機種全体の
+  hardware-verified claimをしない」へ記述を改めた。S1UR/DTV03A-1TUも同じ認定基準に従う。
+- 既存のQ3U4等のLNB対応profileと10.5.2のsoak gateは変更しない。v0.1.7との差分は実装・CI・
+  対象実機の再検証を経るまで未解決とする。
 
 v0.21ではStable候補ごとの一律な全環境長時間再試験を廃止し、model/device profile、runtime/access path、
 feature/pathごとのqualification evidenceと、影響範囲に応じた継承・失効契約へ置き換える。releaseごとの
@@ -173,8 +192,9 @@ MLT5系は1つのIT930xだけを持つ単一USBデバイスであり、`px4d`は
 `px4d --list`は例外として何も所有せず、接続中の対象筐体を列挙して終了する（4.6節）。
 
 `px4d`はforeground動作を標準とし、自身でdaemonizeしない。プロセス監視は利用側へ委ねる。
-LNB 15Vは安全上の明示的opt-inとし、`px4d --allow-lnb-power`なしで受けた15V要求は、GPIOを書き込まず
-`UNSUPPORTED`で拒否する。0V要求と地上波利用はこのoptionに依存しない。
+LNB 15Vは対応profileでも安全上の明示的opt-inとし、`px4d --allow-lnb-power`なしで受けた15V要求は、
+LNB用GPIOを書き込まず`UNSUPPORTED`で拒否する。対応しないprofileではopt-in時も拒否する。
+0V要求と地上波利用はこのoptionに依存しない。
 
 ### 3.2 Internal layers
 
@@ -295,8 +315,11 @@ MLT5系のreceiver番号は次のとおりとする。各receiverはtuneごと�
 | DTV03A-1TU | TC90522(T)+R850 | Tのみ | ISDBT2071_MODEL、TC90522 T address `0x18` |
 
 S1UR/ISDBT2071のISDB-S要求はreceiver capability検査で拒否する。T/S切替機種のLNBは0Vを既定とし、
-`--allow-lnb-power`が指定された場合だけ明示的なISDB-S 15V要求を許可する。frontendとcardは共通backend-power
-referenceを使う。PX-M1UR/PX-S1UR/DTV03A-1TUのcard reader有無はhardware-unverifiedとする。
+15V対応profileでは`--allow-lnb-power`が指定された場合だけ明示的なISDB-S 15V要求を許可する。
+PX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-UはISDB-SのLNB 0V受信のみを対応範囲とし、15V要求は
+opt-inの有無によらず、LNB用GPIOへの書込み前に`UNSUPPORTED`で拒否する。frontendとcardは共通
+backend-power referenceを使う。
+PX-M1UR/PX-S1UR/DTV03A-1TUはprofile認定が完了するまでhardware-unverifiedとする。
 
 MLT8PE3は3 receiver、DTV02A-4TS-Pは4 receiver、MLT8PE5は5 receiverで、各receiverのsystem capabilityは
 ISDB-T/ISDB-Sとする。1 receiver機種のsystem capabilityは次のとおりとする。
@@ -405,6 +428,8 @@ Androidではsystem PC/SCを前提とせず、portable IPCを利用する。
 
 ### 5.2 Hardware and power
 
+以下のPX-Q3U4の2 bridgeに関する要件はsingle receiver機種には適用しない。
+
 - backend power stateは筐体全体の単純な1カウンタではなく、`dev_id 1`と`dev_id 2`ごとに保持する。
 - 既定modeは`all`とし、どちらかのIT9305Eでreceiverが1つでもopenなら両IT9305Eのbackend powerを維持する。
 - card openは`dev_id 1`だけをpower userにする。receiverが1つもopenでなければ`dev_id 2`まで通電させない。
@@ -434,8 +459,16 @@ Androidではsystem PC/SCを前提とせず、portable IPCを利用する。
   `pxmlt_device_params[][]`に一致させる。wire tagはreceiver indexではなくTS port番号+1とする。
 - M1UR/S1UR/ISDBT2071/ISDB2056/ISDB2056NはTC90522とR850/RT710を使うmodel-specific frontendを実装し、
   streamはtag demuxなしのsingle plain TSとして扱う。機種固有の実機初期化・tuning動作はhardware-unverified。
-- 通常の正常終了およびSIGINT、SIGTERM、SIGHUPの受信時は、USB transportを閉じる前に両bridgeのLNBを0Vへ戻す。SIGKILL、host crash、
-  USB stack failureではcleanupを保証できないため、明示的なopt-inと再初期化時のGPIO 11 lowを安全境界とする。
+- single receiver全5機種ではLNB出力をサポートせず、参照`px4_drv`に合わせて初期化・受信・終了時に
+  GPIO 11を設定・読取り・駆動しない。T/S兼用のPX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-Uでは
+  0V要求のISDB-S受信を許可し、15V要求は`--allow-lnb-power`の有無にかかわらず、GPIO書込み前に
+  `UNSUPPORTED`で拒否する。T専用のPX-S1UR/DTV03A-1TUではISDB-S要求自体を拒否する。
+  USB給電という事実だけを15V出力不能の根拠とはしない。DTV02系の実機電圧は未測定である。
+- LNB 15V対応profileでは、通常の正常終了およびSIGINT、SIGTERM、SIGHUPの受信時、USB transportを閉じる前に
+  各bridgeのLNBを0Vへ戻す。SIGKILL、host crash、USB stack failureではcleanupを保証できないため、
+  明示的なopt-inと再初期化時のGPIO 11 lowを安全境界とする。single receiver機種はこのGPIO cleanup規則の
+  対象外で、安全境界は15V要求の無条件拒否とGPIO 11の不操作である。v0.1.7で15V要求を試した個体は、修正版で
+  継続利用する前にUSBを物理的に抜き差しし、旧状態を持ち越さない。抜き差し前に給電状態の安全を推定しない。
 - `px4-termux`のstage 0は、通常終了時およびSIGINT、SIGTERM、SIGHUPの受信時に、固定40秒の猶予を設けて子プロセスグループの終了を待つ。
   40秒後もグループが生存している場合のみSIGKILLを使用し、標準エラー出力へ警告を出力する。この強制終了経路では、graceful cleanup、
   LNB 0V、およびruntime endpoint削除を保証しない。
@@ -774,6 +807,12 @@ firmware、tune/retune、capture、stop/reopen、status、全receiverの同時st
 power/LNB、終了cleanupを確認し、該当機能を含む組合せを30分以上連続して動作させる。profileにない機能は未搭載または
 該当なしと記録し、検証済みとは扱わない。この共通認定だけで別OS/runtime/access pathをhardware-verifiedと主張しては
 ならない。別pathに固有の性質はtargeted evidenceとして個別に認定する。
+
+T/S兼用single receiverの3機種ではLNB 15V出力の0/15/0測定は適用しない。ただし15V要求の否定系は
+省略せず、daemonの`--allow-lnb-power`なし・ありの双方で`UNSUPPORTED`を返し、全single receiver
+機種の初期化から終了までGPIO 11を設定・読取り・駆動しないことをoffline testで確認する。T専用機種は
+ISDB-S要求の拒否を確認する。ISDB-SのLNB 0V受信はT/S兼用機種のprofile認定対象である。DTV02系の
+電圧・受信は未実測であり、参照`px4_drv`との一致だけでhardware-verifiedとしない。
 
 以下の1--7はMLT family固有の追加確認であり、Q3系追加機種および1 receiver profileへ一律に要求する手順ではない。
 MLT profileをhardware-verifiedとする場合、前段の共通認定に加えて次を満たす。

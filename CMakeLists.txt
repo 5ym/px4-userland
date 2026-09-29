@@ -474,6 +474,17 @@ if(PX4_BUILD_TESTS)
     endif()
 
     add_test(NAME px4_userland_tests COMMAND px4_userland_tests)
+    add_executable(px4_userland_single_receiver_stream_tests
+        userland/tests/single_receiver_stream_tests.cpp
+        userland/src/q3u4_stream.cpp)
+    target_link_libraries(px4_userland_single_receiver_stream_tests
+        PRIVATE px4_userland_core)
+    target_include_directories(px4_userland_single_receiver_stream_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/userland/src)
+    target_compile_features(px4_userland_single_receiver_stream_tests PRIVATE cxx_std_17)
+    px4_enable_project_warnings(px4_userland_single_receiver_stream_tests)
+    add_test(NAME px4_userland_single_receiver_stream_tests
+             COMMAND px4_userland_single_receiver_stream_tests)
     add_executable(px4_userland_tuner_service_settle_tests
         userland/tests/tuner_service_settle_tests.cpp)
     target_link_libraries(px4_userland_tuner_service_settle_tests
