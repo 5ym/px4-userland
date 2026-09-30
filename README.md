@@ -1,6 +1,6 @@
 # px4-userland
 
-`px4-userland` は、PLEX PX-Q3U4、PLEX PX-W3U4、PLEX PX-MLT5PE、e-Better DTV02A-5TS-P 向けのユーザー空間ドライバおよびツール群です。カーネルモジュールを使用せず、ユーザー空間からチューナーおよび内蔵 IC カードリーダーを制御し、MPEG-TS ストリームを出力します。
+`px4-userland` は、PLEX PX-Q3U4、PX-M1UR、PX-S1UR、PX-W3U4、PX-MLT5PE、および e-Better DTV02A-5TS-P 向けのユーザー空間ドライバおよびツール群です。カーネルモジュールを使用せず、ユーザー空間からチューナーおよび内蔵 IC カードリーダーを制御し、MPEG-TS ストリームを出力します。機種ごとの認定範囲とOS/access path別の状態は下表を参照してください。
 
 ## 対応機種・動作環境
 
@@ -11,6 +11,8 @@
 | 機種 | USB ID |
 |---|---|
 | PX-Q3U4 | `0511:084a` |
+| PX-M1UR | `0511:0854` |
+| PX-S1UR | `0511:0855` |
 | PX-MLT5PE | `0511:024e` |
 
 #### e-Better
@@ -23,7 +25,7 @@
 
 ### 未検証の機種
 
-下記の機種でも動作するはずですが、実機未検証のため不具合が起こる可能性があります。動作報告・不具合報告をお待ちしております。
+下記の機種は実装・列挙対象ですが、機種profileのcanonical hardware認定が未完了です。試験したruntime/access pathがある場合も、下表に示す個別範囲を超えるサポート主張は行いません。
 
 #### PLEX
 
@@ -35,8 +37,6 @@
 | PX-W3PE5 | `0511:073f` |
 | PX-Q3PE5 | `0511:074a` |
 | PX-MLT8PE | `0511:0252`（MLT8PE3）、`0511:0253`（MLT8PE5） |
-| PX-M1UR | `0511:0854` |
-| PX-S1UR | `0511:0855` |
 
 #### e-Better
 
@@ -54,10 +54,16 @@
 | OS / 環境 | 対象model/profile | build-tested | tuner-hardware-verified | card-core-hardware-verified | native-card-adapter-verified | 備考 |
 |---|---|:---:|:---:|:---:|:---:|---|
 | Linux x86_64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | 完全静的CLI + glibc/musl別IFD Handler |
+| Linux x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | AnduinOS上でprofile別30分連続受信、機種固有T/S、カード、retune、stop/reopen、USB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。候補版の証拠は[検証結果](docs/platforms/validation-results.md)参照。 |
 | Linux x86_64 | DTV02A-5TS-P実機（PX-MLT5PEと同一のMLT5 profile） | 完了 | 検証済み | 検証済み | 未検証 | [PR #5](https://github.com/Khronos31/px4-userland/pull/5)：Ubuntu 26.04 amd64で5 tunerの地上波・BS/CS TSと内蔵カードリーダー利用を確認。IFD/PCSC経路は未確認。 |
 | Linux aarch64 | 全model/profile | 完了 | 未検証 | 未検証 | 未検証 | build-tested / hardware-unverified（すべて実機未検証） |
+| HAOS SCS Debian/glibc x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | 候補版で30分受信、PC/SC併走、機種該当のT/S、card/USB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。 |
+| HAOS Supervisor Alpine/musl x86_64 | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 未認定（一部PC/SC smoke） | 候補版でT/S該当系統、direct APDUとPC/SC reader smokeは成功。30分profile認定、card抜去/再挿入、反復PC/SC APDUと物理USB抜差しは未実施。 |
 | macOS arm64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | Apple Silicon（PC/SC IFD bundle含む） |
+| macOS arm64 | PX-M1UR | 完了 | 検証済み | 検証済み | 検証済み | 候補版でprofile該当系統、PC/SC、stop/reopen、cardおよびUSB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。 |
+| macOS arm64 | PX-S1UR | 完了 | 一部実機試験（未認定） | 検証済み | 検証済み | 候補版でISDB-T 30分、PC/SC、cardおよびUSB再接続後のdaemon再起動による復旧を確認。macOS上で同一daemonのstop/reopenは未実施。同一daemonの自動USB再接続も未確認。 |
 | Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象） |
+| Android Termux（aarch64 / armv7a / x86_64） | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 該当なし（N/A） | 各architectureでT/S該当系統と受信中APDUを確認。card抜去/再挿入とUSB切断/再接続は未実施。APKは対象外。 |
 | Android ad-hoc APK | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 内部試験器具（配布物に含まれません） |
 | Windows | — | — | — | — | — | 非対応 / 対象外（out of scope） |
 
@@ -84,7 +90,7 @@ IT930x ファームウェアは本ソフトウェアに同梱されていませ�
 
 Linux ディストリビューション別の実機検証済み構成例は [Linux環境別の検証済み構成例](docs/platforms/README.md) を参照してください。
 
-Linux では `px4d` の実行ユーザーが対象機種（USB ID `0511:084a`、`0511:024e`、`0511:924e`）の USB デバイスノードを読み書きできる必要があります。権限がない場合、低層原因は libusb の access denied ですが、CLI 表示は `device open: USB_IO`（終了コード 7）になります。通常の `px4d` 実行に毎回 `sudo` を使う必要はありません。
+Linux では `px4d` の実行ユーザーが対象機種（USB ID `0511:084a`、`0511:0854`、`0511:0855`、`0511:024e`、`0511:924e`）の USB デバイスノードを読み書きできる必要があります。権限がない場合、低層原因は libusb の access denied ですが、CLI 表示は `device open: USB_IO`（終了コード 7）になります。通常の `px4d` 実行に毎回 `sudo` を使う必要はありません。
 
 udev 環境では、対象を利用する機種だけに限定したルールを root で配置します。
 
@@ -92,6 +98,9 @@ udev 環境では、対象を利用する機種だけに限定したルールを
 # /etc/udev/rules.d/70-px4-q3u4.rules
 # PX-Q3U4 を利用する場合
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0511", ATTR{idProduct}=="084a", MODE="0660", GROUP="video"
+# PX-M1UR / PX-S1UR を利用する場合
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0511", ATTR{idProduct}=="0854", MODE="0660", GROUP="video"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0511", ATTR{idProduct}=="0855", MODE="0660", GROUP="video"
 # PX-MLT5PE / DTV02A-5TS-P を利用する場合
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0511", ATTR{idProduct}=="024e", MODE="0660", GROUP="video"
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0511", ATTR{idProduct}=="924e", MODE="0660", GROUP="video"
@@ -233,7 +242,7 @@ DTV02A-5TS-P / PX-MLT5PE の 5 つの受信機は 0〜4 番で、いずれも選
 
 ### Android / Termux
 
-Termux 環境では、配布アーカイブに含まれるシェルランチャー `px4-termux` を使用して `px4d` を起動します。PX-Q3U4 が公開する 2 つの USB デバイス（DTV02A-5TS-P / PX-MLT5PE では 1 つ）に対するアクセス権限を Termux:API 経由で取得し、`px4d` に引き渡して動作させます。Python や補助デーモンは不要です。
+Termux 環境では、配布アーカイブに含まれるシェルランチャー `px4-termux` を使用して `px4d` を起動します。PX-Q3U4 が公開する 2 つの USB デバイス、および単一USBデバイス機種（PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE）に対するアクセス権限を Termux:API 経由で取得し、`px4d` に引き渡して動作させます。Python や補助デーモンは不要です。Termux上のM1UR/S1UR実機試験は一部機能に限られ、対応範囲は動作環境表のとおりです。
 
 #### 必要環境の導入
 
@@ -281,7 +290,7 @@ chmod 700 "$runtime_dir"
   --runtime-dir "$runtime_dir"
 ```
 
-DTV02A-5TS-P / PX-MLT5PE では `--usb-device` を 1 回だけ指定し、`--device` には 15 桁の USB シリアルを指定します（Android 実機では未検証です）。
+PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE では `--usb-device` を 1 回だけ指定し、`--device` には 15 桁の USB シリアルを指定します。M1UR/S1URはTermuxの3 architectureで一部の受信・カード経路を実機確認済みですが、hotplug等を含む機種profile認定は未完了です。
 
 - `px4-termux` はフォアグラウンドで動作します。
 - 停止する場合は `Ctrl+C` を入力するか、親プロセスへ `SIGINT`、`SIGTERM`、または `SIGHUP` を送信してください。通常の正常終了（graceful cleanup）では、シグナルが子プロセスグループへ伝達され、子プロセスの終了とソケットの削除が行われます。
@@ -313,11 +322,11 @@ px4d --device BASE_SERIAL --firmware PATH [--runtime-dir PATH] [--group] [--allo
 px4d --list
 ```
 
-- `--device BASE_SERIAL`: 対象 PX-Q3U4 の 14 桁 base serial、または DTV02A-5TS-P / PX-MLT5PE の 15 桁 USB シリアルを指定します。
+- `--device BASE_SERIAL`: PX-Q3U4 の14桁base serial、またはsingle-device機種（PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE）の15桁USB serialを指定します。
 - `--firmware PATH`: IT930x ファームウェアバイナリのパスを指定します（必須）。
 - `--runtime-dir PATH`: ランタイムルートディレクトリを指定します（省略時は `$XDG_RUNTIME_DIR`）。
 - `--allow-lnb-power`: LNB 15V 対応機種で、衛星放送受信時の給電を許可します（安全のための明示的 opt-in）。PX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-U は対象外です。
-- `--fd FD [--fd FD]`: Android 環境などで、ホスト側が開いた USB ファイルディスクリプタを直接渡して起動します。PX-Q3U4 は 2 つ、DTV02A-5TS-P / PX-MLT5PE は 1 つ指定します（この場合 `--device` は任意）。
+- `--fd FD [--fd FD]`: Android 環境などで、ホスト側が開いた USB ファイルディスクリプタを直接渡して起動します。PX-Q3U4 は 2 つ、PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE は 1 つ指定します（この場合 `--device` は任意）。
 - `--list`: 接続中の対象筐体を列挙して終了します（単独で指定）。`--device` に渡す識別子、機種、状態、各受信機の放送方式を出力します。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。筐体にまとめられなかった対象機種の USB デバイスは `rejected` 行で理由付きで出ます（USB ノードを開く権限が無いと `status=open_failed`）。仕様は `SPEC.md` 4.6 節です。
 
 ```text
@@ -409,8 +418,7 @@ PX-Q3U4 内蔵の IC カードリーダーは `px4d` が管理します。本ソ
 > [!CAUTION]
 > **LNB 15V 給電の安全に関する注意**
 > 衛星アンテナ設備への LNB 15V 給電は、配線や他の給電機器（ブースターやテレビなど）との競合を確認した上で行ってください。LNB 給電に対応する機種でも、誤給電を防ぐため、デーモン起動時の `--allow-lnb-power` と受信時の `px4-ts --lnb-voltage 15` の双方を明示した場合に限り 15V を要求できます。
-> PX-M1UR と DTV02-1T1S-U / DTV02A-1T1S-U の LNB 15V 給電はサポート対象外です。M1UR の実機開放端測定では、両オプションを指定しても 0V のままでした。DTV02系は未実測ですが、参照 `px4_drv` のLNB setterが無効です。現行 v0.1.7 はこれらT/S兼用機種の15V要求を拒否せずGPIO 11を操作する既知の実装不一致があり、修正・検証前に本機のLNB給電を利用しないでください。給電が必要な設備では外部給電を別途用意してください。
-> v0.1.7 でこれらの機種に15V要求を試した場合、修正版で使用を続ける前にUSBを物理的に抜き差ししてください。抜き差し前の給電状態を安全と推定しないでください。
+> PX-M1UR と DTV02-1T1S-U / DTV02A-1T1S-U の LNB 15V 給電はサポート対象外です。M1UR の実機開放端測定では、両オプションを指定しても 0V のままでした。DTV02系は未実測ですが、参照 `px4_drv` のLNB setterが無効です。candidate `2f555ff` はこれらT/S兼用機種の15V要求をopt-inの有無によらずGPIO書込み前に拒否します。公開済みv0.1.7でこれらの機種に15V要求を試した場合、修正版へ移行する前にUSBを物理的に抜き差しし、以前の給電状態を持ち越さないでください。給電が必要な設備では外部給電を別途用意してください。
 
 ## ビルド方法
 

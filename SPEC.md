@@ -1,9 +1,31 @@
 # px4-userland 仕様
 
-Status: Frozen v0.22 (2026-09-29)
+Status: Frozen v0.24 (2026-09-30)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+v0.23では10.5.2のlong soak triggerを、変更が影響するmodel/profile/topologyへ限定する。Q3U4へ
+影響しないと立証された追加profile固有の変更だけを理由に、Q3U4の代表2時間soakを要求しない。一方、
+Q3U4に影響する変更と周期再認定の2時間soak、追加profileの10.2.7認定、共通実装の影響除外に必要な証拠は維持する。
+
+v0.24ではPX-M1URとPX-S1URのcanonical Linux x86_64 profile認定完了を反映する。各runtime/access pathの
+hardware claimは10.2.8・10.3と個別の検証記録に従い、未実施のpathへ拡張しない。
+
+### v0.24 qualification record (2026-09-30)
+
+- PX-M1URとPX-S1UR: exact candidate `2f555ff0542c7a36fb2565b64ebc0703f44a0931`を用いたLatitude 5300 / AnduinOS
+  Linux x86_64で10.2.7のcanonical profile認定を完了した。環境別のfeature/path evidenceは
+  `docs/platforms/validation-results.md`に記録し、未認定runtime/access pathは引き続き限定表示する。
+
+### v0.23 change record (2026-09-30)
+
+- 10.5.2節: 10.5.1の影響判定をlong soak triggerにも適用する。Q3U4へ影響しないことを根拠付きで示せる
+  追加profile固有変更ではQ3U4の代表2時間soakを要求せず、変更対象profileの10.2.7認定と対象機能の
+  targeted再検証を要求する。共通実装に触れた場合はQ3U4経路の非影響を記録し、両Linux runtimeで短時間回帰
+  を行う。影響不明または回帰失敗なら免除しない。
+- 10.5.2節: 6か月または6回目のStable releaseで先に来る周期再認定は、変更影響と独立したQ3U4代表2時間
+  soakのtriggerとして維持する。10.2.6aのreceiver 7 fresh比較も維持する。
 
 v0.22ではsingle receiver機種のLNB 15V給電を対応profileから除外する。PX-M1URの実機開放端測定は
 0Vのままであり、参照`px4_drv`ではPX-M1UR・ISDB2056/ISDB2056NのLNB setterが無効、S1UR/ISDBT2071
@@ -140,8 +162,8 @@ support matrixと実機検証経路は次のとおりとする。
 
 ### 2.1 Goals
 
-- Q3U4/W3U4系とMLT系の各supported profileについて、profile receiver数に応じてtuner制御する。
-- v0.18で識別対象に追加した12機種の実機動作はhardware-unverifiedとし、hardware acceptanceは完了扱いしない。
+- Q3U4/W3U4系、MLT系、およびsingle-receiverの各supported profileについて、profile receiver数に応じてtuner制御する。
+- v0.18で識別対象に加えたmodelの実機認定状態は4.1表と10.2.8のevidenceに従い、機種単位で判定する。
 - PX-Q3U4内蔵ICカードリーダーでカード検出、ATR取得、リセット、T=1 APDU送受信を行う。
 - Q3U4を構成する2つのIT9305Eを同一筐体として対応付け、2基間で連動するbackend powerを一貫して管理する。
 - USB列挙、制御転送、非同期TS転送、カードUARTをlibusb-1.0で実装する。
@@ -162,8 +184,8 @@ support matrixと実機検証経路は次のとおりとする。
 - mirakcの同梱またはmirakc側の変更。
 - Home Assistantアドオンの作成または変更。
 - PX-MLT5U、ISDB6014、その他v0.18の4.1表にない機種の動作保証。
-- v0.18で追加した12機種は実装対象だが、実機報告が得られるまでhardware-unverifiedとする。
-  READMEの対応機種一覧にも未検証状態を明記する。
+- v0.18で追加した12機種は実装・識別対象であり、全体を一律にhardware-verifiedとは扱わない。
+  機種profileの認定状況とruntime/access path別claimはREADMEとevidence recordに明記する。
 - 配布用Android APKまたはdtv-androidへの統合。Google TV Streamer実機検証用のad-hoc APKは試験器具として許容する。
 - B-CAS/ACASの暗号処理、ECM処理、TSのスクランブル解除。
 - ネットワーク越しの利用。IPCは同一ホスト内に限定する。
@@ -249,8 +271,8 @@ v0.18の対応USB IDと筐体識別子は次のとおりとする。未掲載の
 | PX-MLT8PE3 | `0511:0252` | 1 | 同上 | 3 | hardware-unverified |
 | PX-MLT8PE5 | `0511:0253` | 1 | 同上 | 5 | hardware-unverified |
 | DTV02A-4TS-P | `0511:0254` | 1 | 同上 | 4 | hardware-unverified |
-| PX-M1UR | `0511:0854` | 1 | 同上 | 1 | hardware-unverified |
-| PX-S1UR | `0511:0855` | 1 | 同上 | 1 | hardware-unverified |
+| PX-M1UR | `0511:0854` | 1 | 同上 | 1 | built-in |
+| PX-S1UR | `0511:0855` | 1 | 同上 | 1 | built-in |
 | DTV03A-1TU | `0511:0052` | 1 | 同上 | 1 | hardware-unverified |
 | DTV02-1T1S-U | `0511:004b` | 1 | 同上 | 1 | built-in, hardware-unverified |
 | DTV02A-1T1S-U | `0511:084b` | 1 | 同上 | 1 | built-in, hardware-unverified |
@@ -319,7 +341,8 @@ S1UR/ISDBT2071のISDB-S要求はreceiver capability検査で拒否する。T/S�
 PX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-UはISDB-SのLNB 0V受信のみを対応範囲とし、15V要求は
 opt-inの有無によらず、LNB用GPIOへの書込み前に`UNSUPPORTED`で拒否する。frontendとcardは共通
 backend-power referenceを使う。
-PX-M1UR/PX-S1UR/DTV03A-1TUはprofile認定が完了するまでhardware-unverifiedとする。
+PX-M1URとPX-S1URはcanonical Linux x86_64のprofile認定を完了した。DTV03A-1TUはprofile認定が完了するまで
+hardware-unverifiedとし、各runtime/access pathのclaimは10.2.8の独立evidenceに従う。
 
 MLT8PE3は3 receiver、DTV02A-4TS-Pは4 receiver、MLT8PE5は5 receiverで、各receiverのsystem capabilityは
 ISDB-T/ISDB-Sとする。1 receiver機種のsystem capabilityは次のとおりとする。
@@ -329,7 +352,7 @@ ISDB-T/ISDB-Sとする。1 receiver機種のsystem capabilityは次のとおり�
 | PX-M1UR, DTV02-1T1S-U, DTV02A-1T1S-U | 0 | ISDB-T/ISDB-S |
 | PX-S1UR, DTV03A-1TU | 0 | ISDB-T |
 
-1 receiver機種はreceiver 0だけを使う。追加機種の実機挙動はhardware-unverifiedである。
+1 receiver機種はreceiver 0だけを使う。canonical profile認定未完了の機種はhardware-unverifiedである。
 
 ### 4.3 Tuning API
 
@@ -458,7 +481,8 @@ Androidではsystem PC/SCを前提とせず、portable IPCを利用する。
 - MLT8PE3、MLT8PE5、DTV02A-4TS-Pのreceiver配線はupstream `driver/pxmlt_device.c`の
   `pxmlt_device_params[][]`に一致させる。wire tagはreceiver indexではなくTS port番号+1とする。
 - M1UR/S1UR/ISDBT2071/ISDB2056/ISDB2056NはTC90522とR850/RT710を使うmodel-specific frontendを実装し、
-  streamはtag demuxなしのsingle plain TSとして扱う。機種固有の実機初期化・tuning動作はhardware-unverified。
+  streamはtag demuxなしのsingle plain TSとして扱う。PX-M1UR/PX-S1URはcanonical Linux x86_64でprofile認定済み。
+  その他の機種はprofile固有の実機初期化・tuning認定が完了するまでhardware-unverified。
 - single receiver全5機種ではLNB出力をサポートせず、参照`px4_drv`に合わせて初期化・受信・終了時に
   GPIO 11を設定・読取り・駆動しない。T/S兼用のPX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-Uでは
   0V要求のISDB-S受信を許可し、15V要求は`--allow-lnb-power`の有無にかかわらず、GPIO書込み前に
@@ -649,10 +673,10 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
 ### 7.2 Android/Bionic
 
 - `px4d`は`--fd FD`を繰り返し受け取り、Q3U4の2 USB deviceをwrapできる。
-- `--fd`は筐体のUSB device数だけ指定する。Q3U4は2個、MLT5系は1個とし、0個または3個以上は拒否する。
-  wrapした全deviceが選択した1筐体に属さなければ（例: MLT5系に2個、Q3U4の片側だけに1個）失敗する。
+- `--fd`は筐体のUSB device数だけ指定する。Q3U4は2個、single-receiver機種（PX-M1UR / PX-S1UR）とMLT5系は1個とし、0個または3個以上は拒否する。
+  wrapした全deviceが選択した1筐体に属さなければ（例: single-device機種に2個、Q3U4の片側だけに1個）失敗する。
   v0.15までの「`--fd`はちょうど2個」はQ3U4についての規則として維持される。
-- `px4-termux`の`--usb-device`は1回（MLT5系）または2回（Q3U4）とする。1回の場合もstage 0の監督、signal転送、
+- `px4-termux`の`--usb-device`は1回（PX-M1UR / PX-S1UR / MLT5系）または2回（Q3U4）とする。1回の場合もstage 0の監督、signal転送、
   40秒猶予は2 FD経路と同じとし、stage 1が`exec px4d --fd FD1 ...`を実行する。
 - fd modeでは`/dev/bus/usb`の列挙を要求しない。
 - fdの所有権とclose責任を明記し、double-closeしない。
@@ -830,8 +854,9 @@ runtimeに固有のaccess pathは別のevidenceとしてtargeted確認する。�
 1-FD、plain TS、Android USB Host APKのFD handoff、PC/SC adapter、model固有のcardまたはpower経路を扱う。
 canonical Linux認定だけからこれらのruntime/path claimを推論してはならない。
 
-Q3U4の10.2各項は、新機種の追加によって弱めない。v0.18で追加したQ3系、MLT系、1 receiver機種はhardware-unverifiedで
-あり、上記のprofileごとの認定を経るまでhardware-verifiedと表記しない。1 receiver profileでは対象に存在しないISDB-S
+Q3U4の10.2各項は、新機種の追加によって弱めない。v0.18で追加した機種のうちcanonical profile認定未完了のものは
+hardware-unverifiedであり、上記のprofileごとの認定を経るまでhardware-verifiedと表記しない。PX-M1URとPX-S1URは
+canonical Linux x86_64でprofile認定済みだが、別runtime/access pathのclaimは個別evidenceを要する。1 receiver profileでは対象に存在しないISDB-S
 またはcardの項目を除き、そのprofileのsingle TS同期、model-specific tune/capture、stop/reopen、適用される電源・card
 経路を確認する。
 
@@ -1003,18 +1028,35 @@ path/featureを含む。表の列挙変更だけでなく、間接依存する�
 
 #### 10.5.2 Long soak triggers and periodic recertification
 
-long soakは毎releaseのgateではない。stream/queue/demux/concurrency/lifetime/hotplug、card、power/LNB、USB transport、
-IPC lease/retuneに影響する変更では実施する。long-duration behaviorへ影響しないdocs、license、package metadataだけの
-変更では新たなsoakを要求しない。少なくとも6か月または6回目のStable releaseのうち先に到達する期限ごとに、代表Q3U4 topologyで
-周期再認定を行う。この再認定時にはreceiver 7のfresh reference comparisonも行う。
+long soakは毎releaseのgateではない。10.5.1の変更分類と依存関係により、stream/queue/demux/concurrency/
+lifetime/hotplug、card、power/LNB、USB transport、IPC lease/retuneの**長時間挙動へ影響し得るmodel/profile/
+topologyとruntime/access path**を特定し、その対象にだけ変更起因のsoakをtriggerする。変更したファイル名だけで
+全modelへ影響を拡張しない一方、共通実装や間接依存の影響を根拠なしに除外しない。影響がunknown/ambiguous
+なら該当し得るpathを対象に含める。docs、license、package metadataだけの変更では新たなsoakを要求しない。
 
-triggerされたsoakは代表Q3U4で2時間以上行い、ISDB-T/Sを含む8 receiver混在負荷、反復status/APDU、定期的なretune/stop/reopen、
-FD数とRSSの経時傾向、正常/異常cleanupを確認する。Q3U4のTS条件は10.2のTS受入項目（5--8、13）および10.2.6aの
-受入基準を満たす。
-10.2.7は、MLT等の追加profileをtargeted再認定するときに、そのprofileのTS条件を確認する目的で参照する。
-glibcとmuslの両方に影響する共通変更はSCS native/glibcとHAOS Alpine/musl add-onの両経路でsoakする。一方のpathへ
-影響を限定できると根拠付きで判定した場合は当該経路だけをsoakする。代表Q3U4を選べない場合はsoak完了まで該当
+Q3U4 topologyへ影響する変更でtriggerされたsoakは、代表Q3U4で2時間以上行い、ISDB-T/Sを含む8 receiver
+混在負荷、反復status/APDU、定期的なretune/stop/reopen、FD数とRSSの経時傾向、正常/異常cleanupを確認する。
+Q3U4のTS条件は10.2のTS受入項目（5--8、13）および10.2.6aの受入基準を満たす。glibcとmuslの両方に
+影響する共通変更ではSCS native/glibcとHAOS Alpine/musl add-onの両経路でsoakし、一方だけに影響を
+限定できると根拠付きで判定した場合に限り当該経路だけでよい。代表Q3U4を選べない場合、該当Q3U4
 hardware claimを更新しない。
+
+Q3U4へ影響しないと立証された追加profile固有の変更は、Q3U4代表2時間soakのtriggerにしない。ただし
+変更対象の各profileについて、exact candidateで10.2.7のcanonical Linux x86_64における30分以上の
+連続受信とprofile該当機能の受入条件を満たし、影響を受ける別runtime/access pathは10.5.1に従い
+targeted再検証する。このprofile認定をQ3U4の2時間混在負荷soakと同等の試験と表現しない。
+
+Q3U4と共通の実装ファイルを変更したがQ3U4は非影響と判定する場合は、release recordに差分、
+Q3U4の呼出経路、分岐・条件コンパイル等の適用条件、変更がその経路へ作用しない根拠を記録する。
+加えてexact candidateでSCS native/glibcとHAOS Alpine/musl add-onの各経路において、Q3U4の
+8 receiver ISDB-T/S混在受信を
+各10分以上、statusとcard APDUの併走、stop/reopen、TS/USB errorおよび終了後の残留確認を行う。
+この短時間回帰が未実施・失敗、または非影響の根拠が曖昧なら、Q3U4を影響対象として本節のQ3U4 2時間混在負荷soak
+を適用する。短時間回帰は影響除外の補助証拠であり、Q3U4へ影響する変更の2時間soakの代替ではない。
+
+少なくとも6か月または6回目のStable releaseのうち先に到達する期限ごとに、変更影響とは独立して
+代表Q3U4 topologyを本節のQ3U4 2時間混在負荷条件で周期再認定する。この再認定時には
+receiver 7のfresh reference comparisonも行う。周期再認定はprofile固有変更によるQ3U4非影響判定で免除しない。
 
 ## 11. Implementation increments
 

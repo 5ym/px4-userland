@@ -4,7 +4,7 @@
 
 - Normative product requirements are in `SPEC.md`. Read the relevant section before implementation.
 - If an observed device behavior conflicts with the frozen specification, update its version and rationale before changing the implementation.
-- `px4-userland` targets only PLEX PX-Q3U4 (`0511:084a`), PLEX PX-MLT5PE (`0511:024e`), and e-Better DTV02A-5TS-P (`0511:924e`) as defined in `SPEC.md` v0.16. Do not claim support for other related devices without a versioned specification change and hardware regression coverage.
+- Supported device profiles and their verification status are defined by the current `SPEC.md` and `README.md`. Do not claim support for another related device without a versioned specification change and the profile-specific hardware evidence required by `SPEC.md`.
 
 ## Supported scope
 
