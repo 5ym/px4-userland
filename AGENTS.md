@@ -53,6 +53,12 @@
 - [貢献者への謝意を敬体で記載]
 ```
 
+## Stable release validation
+
+- Stable 公開前の検証は [`docs/release-validation.md`](docs/release-validation.md) の順に行う。判定条件の正本は `SPEC.md` の10章であり、手順書との不一致はSPECを優先して手順書を直す。
+- 全OS・全機種の一律回帰を行わず、毎回必須のCI/candidate audit/canaryと、SPEC 10.5.1/10.5.2のtriggerが成立するtargeted検証を分ける。条件にないlong soakや独自の巨大検証scriptを追加しない。
+- 実施・省略・未認定の根拠と失敗試行を記録する。物理USB/cardの抜差しはユーザーの確認なしに行わない。
+
 ## Handoff requirements
 
 - Report changed files, commands run, results, and unverified scope at the end of each increment.
