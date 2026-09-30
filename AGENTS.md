@@ -26,6 +26,33 @@
 - Do not run `git add`, `git commit`, or `git push` unless the user explicitly requests that operation.
 - Create public issues only for unresolved problems known at publication time; do not create preventive placeholder issues.
 
+## Release notes
+
+- GitHub Release のタイトルは `vX.Y.Z` のみとし、先頭に製品名などを付けない。
+- 本文の先頭見出しは `px4-userland vX.Y.Z` とする。
+- 概要は敬体（です・ます調）で簡潔に書く。
+- 「主な変更」「検証」「既知の制限」は箇条書きの常体で書く。該当項目がない節は省略し、埋め草を入れない。
+- 「謝辞」は敬体で書く。
+- リリースノートは利用者向けの変更概要と必要な注意に絞る。内部監査記録、詳細な試験ログ、ハッシュ一覧、余計な検証 matrix は載せない。環境別の詳細が必要な場合は README 等の正本へリンクし、matrix を複製しない。
+
+```markdown
+# px4-userland vX.Y.Z
+
+[概要を敬体で簡潔に記載]
+
+## 主な変更
+- [変更点を常体で記載]
+
+## 検証
+- [検証結果を常体で簡潔に記載]
+
+## 既知の制限
+- [必要な場合のみ、常体で記載]
+
+## 謝辞
+- [貢献者への謝意を敬体で記載]
+```
+
 ## Handoff requirements
 
 - Report changed files, commands run, results, and unverified scope at the end of each increment.
