@@ -18,6 +18,7 @@
 #include "it930x_test_access.h"
 #include "it930x_probe_args.h"
 #include "q3u4_power.h"
+#include "single_receiver_frontend.h"
 
 #if PX4_ENABLE_LIBUSB
 #include "px4/libusb_transport.h"
@@ -311,6 +312,20 @@ void expect_q3u4_readback(MockTransport& transport, std::uint8_t& sequence,
     expect_register_read(transport, sequence, 0xd8d3U, {0U});
 }
 
+void expect_single_receiver_readback(MockTransport& transport, std::uint8_t& sequence)
+{
+    expect_register_read(transport, sequence, 0xda1dU, {0U});
+    expect_register_read(transport, sequence, 0xdd11U, {0x20U});
+    expect_register_read(transport, sequence, 0xdd13U, {0U});
+    expect_register_read(transport, sequence, 0xdd88U, {0xd0U, 0x95U});
+    expect_register_read(transport, sequence, 0xdd0cU, {0x80U});
+    expect_register_read(transport, sequence, 0xda05U, {0U});
+    expect_register_read(transport, sequence, 0xda06U, {0U});
+    expect_register_read(transport, sequence, 0xd920U, {0U});
+    expect_register_read(transport, sequence, 0xd8b7U, {0U});
+    expect_register_read(transport, sequence, 0xd8b3U, {1U});
+}
+
 std::uint8_t expect_q3u4_warm_sequence(MockTransport& transport,
                                        std::uint8_t initial_sequence = 0U,
                                        bool include_readback = true)
@@ -375,6 +390,89 @@ std::uint8_t expect_q3u4_warm_sequence(MockTransport& transport,
         expect_q3u4_readback(transport, sequence);
     }
     return sequence;
+}
+
+std::uint8_t expect_single_receiver_warm_sequence(MockTransport& transport,
+                                                   DeviceModel model,
+                                                   std::uint8_t initial_sequence = 0U,
+                                                   bool include_readback = true)
+{
+    const std::uint8_t address = model == DeviceModel::dtv03a_1tu ? 0x18U : 0x10U;
+    const std::uint8_t port = model == DeviceModel::dtv03a_1tu ? 4U : 0U;
+    std::uint8_t sequence = initial_sequence;
+    expect_register_write(transport, sequence, 0x4976U, {0U});
+    expect_register_write(transport, sequence, 0x4bfBU, {0U});
+    expect_register_write(transport, sequence, 0x4978U, {0U});
+    expect_register_write(transport, sequence, 0x4977U, {0U});
+    expect_register_write(transport, sequence, 0xda1aU, {0U});
+    expect_register_rmw(transport, sequence, 0xf41fU, 0xa1U, 0xa5U);
+    expect_register_rmw(transport, sequence, 0xda10U, 0xf3U, 0xf2U);
+    expect_register_rmw(transport, sequence, 0xf41aU, 0xa0U, 0xa1U);
+    expect_register_rmw(transport, sequence, 0xda1dU, 0x80U, 0x81U);
+    expect_register_rmw(transport, sequence, 0xdd11U, 0xffU, 0xdfU);
+    expect_register_rmw(transport, sequence, 0xdd13U, 0xffU, 0xdfU);
+    expect_register_rmw(transport, sequence, 0xdd11U, 0xdfU, 0xffU);
+    expect_register_write(transport, sequence, 0xdd88U, {0xd0U, 0x95U});
+    expect_register_write(transport, sequence, 0xdd0cU, {0x80U});
+    expect_register_rmw(transport, sequence, 0xda05U, 0x80U, 0x80U);
+    expect_register_rmw(transport, sequence, 0xda06U, 0x01U, 0x00U);
+    expect_register_rmw(transport, sequence, 0xda1dU, 0x81U, 0x80U);
+    expect_register_write(transport, sequence, 0xd920U, {0U});
+    expect_register_write(transport, sequence, 0xd833U, {1U});
+    expect_register_write(transport, sequence, 0xd830U, {0U});
+    expect_register_write(transport, sequence, 0xd831U, {1U});
+    expect_register_write(transport, sequence, 0xd832U, {0U});
+    expect_register_write(transport, sequence, 0xf6a7U, {0x07U});
+    expect_register_write(transport, sequence, 0xf103U, {0x07U});
+    expect_register_write(transport, sequence, 0x4975U,
+                          {static_cast<std::uint8_t>(address << 1U)});
+    expect_register_write(transport, sequence, 0x4971U, {3U});
+    if (port < 2U) {
+        expect_register_write(transport, sequence,
+                              static_cast<std::uint32_t>(0xda58U + port), {0U});
+    }
+    expect_register_write(transport, sequence,
+                          static_cast<std::uint32_t>(0xda73U + port), {1U});
+    expect_register_write(transport, sequence,
+                          static_cast<std::uint32_t>(0xda78U + port), {0x47U});
+    expect_register_write(transport, sequence,
+                          static_cast<std::uint32_t>(0xda4cU + port), {1U});
+    expect_register_write(transport, sequence, 0xd8b4U, {1U});
+    expect_register_write(transport, sequence, 0xd8b5U, {1U});
+    expect_register_write(transport, sequence, 0xd8b3U, {1U});
+    expect_register_write(transport, sequence, 0xd8b8U, {1U});
+    expect_register_write(transport, sequence, 0xd8b9U, {1U});
+    expect_register_write(transport, sequence, 0xd8b7U, {0U});
+    if (include_readback) {
+        expect_single_receiver_readback(transport, sequence);
+    }
+    return sequence;
+}
+
+std::uint8_t expect_single_receiver_cold_sequence(MockTransport& transport,
+                                                   DeviceModel model,
+                                                   std::uint8_t initial_sequence = 0U)
+{
+    constexpr std::array<std::uint8_t, 1U> query{1U};
+    constexpr std::array<std::uint8_t, 4U> zero_version{0U, 0U, 0U, 0U};
+    constexpr std::array<std::uint8_t, 4U> loaded_version{0U, 0U, 2U, 1U};
+    const std::array<std::uint8_t, 7U> speed_payload{1U, 2U, 0U, 0U, 0xf1U, 0x03U, 0x07U};
+    std::uint8_t sequence = initial_sequence;
+    expect_command(transport, 0x22U, sequence++,
+                   ByteView{query.data(), query.size()},
+                   ByteView{zero_version.data(), zero_version.size()});
+    expect_command(transport, 0x01U, sequence++,
+                   ByteView{speed_payload.data(), speed_payload.size()},
+                   ByteView{nullptr, 0U});
+    expect_command(transport, 0x29U, sequence++,
+                   ByteView{kSyntheticFirmwareImage.data(), kSyntheticFirmwareImage.size()},
+                   ByteView{nullptr, 0U});
+    expect_command(transport, 0x23U, sequence++,
+                   ByteView{nullptr, 0U}, ByteView{nullptr, 0U});
+    expect_command(transport, 0x22U, sequence++,
+                   ByteView{query.data(), query.size()},
+                   ByteView{loaded_version.data(), loaded_version.size()});
+    return expect_single_receiver_warm_sequence(transport, model, sequence);
 }
 
 // px4_drv v0.6.1 pxmlt_device.c (PXMLT5PE_MODEL) and it930x.c: the common
@@ -563,6 +661,125 @@ bool test_it930x_q3u4_lnb_gpio_authority()
         // Terminal transport loss suppresses every later GPIO 11 write.
         const auto cleanup = controller.set_q3u4_lnb_power(false);
         CHECK(!cleanup && cleanup.error() == Error::DISCONNECTED);
+        CHECK(transport.remaining_expectations() == 0U);
+    }
+    return true;
+}
+
+namespace {
+
+class NoopSingleReceiverBridge final : public BridgeI2cMaster {
+public:
+    Result<void> request(BridgeI2cRequest*, std::size_t) noexcept override
+    {
+        return Result<void>::success();
+    }
+};
+
+class NoopSingleReceiverBackendPower final : public Q3U4BackendPower {
+public:
+    Result<void> set_backend_power(bool, Q3U4Delay&) noexcept override
+    {
+        return Result<void>::success();
+    }
+};
+
+class NoopSingleReceiverDelay final : public Q3U4FrontendDelay {
+public:
+    void sleep_ms(std::uint32_t) noexcept override {}
+};
+
+}  // namespace
+
+bool test_single_receiver_lnb_15v_rejected()
+{
+    NoopSingleReceiverBridge bridge;
+    NoopSingleReceiverBackendPower power;
+    NoopSingleReceiverDelay delay;
+    constexpr std::array<DeviceModel, 5U> single_receiver_models{{
+        DeviceModel::px_m1ur,
+        DeviceModel::px_s1ur,
+        DeviceModel::dtv03a_1tu,
+        DeviceModel::dtv02_1t1s_u,
+        DeviceModel::dtv02a_1t1s_u}};
+    for (const DeviceModel model : single_receiver_models) {
+        for (const bool allow : {false, true}) {
+            MockTransport transport;
+            It930xController controller(transport, kFastPacing);
+            SingleReceiverFrontend frontend(bridge, controller, power, delay,
+                                            model, allow);
+            CHECK(frontend.open_receiver(0U));
+            const auto denied = frontend.begin_tune_power(
+                0U, ipc::System::ISDB_S, 15U);
+            CHECK(!denied && denied.error() == Error::UNSUPPORTED);
+            CHECK(transport.remaining_expectations() == 0U);
+            CHECK(frontend.close_receiver(0U));
+        }
+    }
+    // 0V T/S paths remain accepted on the T/S-capable models; T-only models
+    // continue to reject ISDB-S via receiver_supports.
+    constexpr std::array<DeviceModel, 3U> ts_models{{
+        DeviceModel::px_m1ur,
+        DeviceModel::dtv02_1t1s_u,
+        DeviceModel::dtv02a_1t1s_u}};
+    for (const DeviceModel model : ts_models) {
+        MockTransport transport;
+        It930xController controller(transport, kFastPacing);
+        SingleReceiverFrontend frontend(bridge, controller, power, delay,
+                                        model, true);
+        CHECK(frontend.open_receiver(0U));
+        CHECK(frontend.begin_tune_power(0U, ipc::System::ISDB_S, 0U));
+        CHECK(frontend.begin_tune_power(0U, ipc::System::ISDB_T, 0U));
+        const auto invalid_t = frontend.begin_tune_power(
+            0U, ipc::System::ISDB_T, 15U);
+        CHECK(!invalid_t && invalid_t.error() == Error::INVALID_ARGUMENT);
+        CHECK(transport.remaining_expectations() == 0U);
+        CHECK(frontend.close_receiver(0U));
+    }
+    return true;
+}
+
+bool test_single_receiver_warm_initialization_skips_gpio11()
+{
+    constexpr std::array<std::uint8_t, 4U> loaded_version{0U, 0U, 2U, 1U};
+    constexpr std::array<std::uint8_t, 1U> query{1U};
+    constexpr std::array<DeviceModel, 5U> single_receiver_models{{
+        DeviceModel::px_m1ur,
+        DeviceModel::px_s1ur,
+        DeviceModel::dtv03a_1tu,
+        DeviceModel::dtv02_1t1s_u,
+        DeviceModel::dtv02a_1t1s_u}};
+    const auto image = FirmwareTestAccess::make_image(
+        ByteView{kSyntheticFirmwareImage.data(), kSyntheticFirmwareImage.size()});
+    for (const DeviceModel model : single_receiver_models) {
+        MockTransport transport;
+        expect_command(transport, 0x22U, 0U, ByteView{query.data(), query.size()},
+                       ByteView{loaded_version.data(), loaded_version.size()});
+        expect_single_receiver_warm_sequence(transport, model, 1U);
+        It930xController controller(transport, kFastPacing);
+        const auto result = controller.initialize_single_receiver(image, model);
+        CHECK(result && result.value().already_loaded && result.value().verified);
+        CHECK(transport.remaining_expectations() == 0U);
+    }
+    return true;
+}
+
+bool test_single_receiver_cold_initialization_skips_gpio11()
+{
+    constexpr std::array<DeviceModel, 5U> single_receiver_models{{
+        DeviceModel::px_m1ur,
+        DeviceModel::px_s1ur,
+        DeviceModel::dtv03a_1tu,
+        DeviceModel::dtv02_1t1s_u,
+        DeviceModel::dtv02a_1t1s_u}};
+    const auto image = FirmwareTestAccess::make_image(
+        ByteView{kSyntheticFirmwareImage.data(), kSyntheticFirmwareImage.size()});
+    for (const DeviceModel model : single_receiver_models) {
+        MockTransport transport;
+        expect_single_receiver_cold_sequence(transport, model, 0U);
+        It930xController controller(transport, kFastPacing);
+        const auto result = controller.initialize_single_receiver(image, model);
+        CHECK(result && !result.value().already_loaded && result.value().verified);
         CHECK(transport.remaining_expectations() == 0U);
     }
     return true;
@@ -3096,6 +3313,12 @@ int main(int argc, char** argv)
          test_it930x_q3u4_power_state_after_initialization},
         {"it930x_q3u4_lnb_gpio_authority",
          test_it930x_q3u4_lnb_gpio_authority},
+        {"single_receiver_lnb_15v_rejected",
+         test_single_receiver_lnb_15v_rejected},
+        {"single_receiver_warm_initialization_skips_gpio11",
+         test_single_receiver_warm_initialization_skips_gpio11},
+        {"single_receiver_cold_initialization_skips_gpio11",
+         test_single_receiver_cold_initialization_skips_gpio11},
         {"it930x_q3u4_warm_failure_and_gate_cleanup",
          test_it930x_q3u4_warm_failure_and_gate_cleanup},
         {"it930x_probe_argument_parser", test_it930x_probe_argument_parser},

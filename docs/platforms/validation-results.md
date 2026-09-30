@@ -2,6 +2,127 @@
 
 本ドキュメントは特定revisionにおける実測記録であり、将来版やすべての実行環境における動作を保証するものではありません。
 
+## 2026-09-30 PX-M1UR / PX-S1UR 候補版のクロスプラットフォーム・アクセスパス実機試験
+
+CIの**push-run候補** `2f555ff0542c7a36fb2565b64ebc0703f44a0931`（firmware SHA-256: `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`）を用い、
+HAOS Studio Code Server（Debian 13 glibc x86_64）、HAOS Supervisor管理Alpine add-on（musl x86_64）、
+およびM2 Mac mini（macOS 26.6.2 arm64）で実機試験を実施した。
+各pathで使用した候補アーカイブのSHA-256は以下のとおりである（ファイル名の`0.1.7`は候補ビルドのラベルであり公開リリースではない）。
+- Linux glibc x86_64: `ae2ac0c3c88dc95a948929784bb2d6813522cf1526d21383a7a3339f1c6da8eb` (`px4-userland-0.1.7-linux-glibc-x86_64.tar.gz`)
+- Linux musl x86_64: `e283d88f1a529a2d9aa76043d08a0563e2ba5acd6dc7535b054002d29a95595d` (`px4-userland-0.1.7-linux-musl-x86_64.tar.gz` staged)
+- macOS arm64: `333d6cbaa4d5825ba067122c7bbceff6b07e168d5a82fa5ab75c04dfadb3199f` (`px4-userland-0.1.7-darwin-arm64.tar.gz`)
+
+両機種ともUSB serialは`000000000000001`で、PX-M1UR（`0511:0854`、1 receiver ISDB-T/S）、PX-S1UR（`0511:0855`、1 receiver ISDB-T専用）を個別のUSB IDで識別し、1台ずつ接続した。
+Android Termuxの1-FD経路は後掲の別表で記録する。Android APKおよびWindowsは本試験の対象外である。
+
+| Model / 環境 / access path | 30分連続受信 + PC/SC併走 | 短時間受信・カード・追加確認 | USB切断/再接続・カード抜去/再挿入 |
+|---|---|---|---|
+| PX-M1UR<br>HAOS SCS<br>Debian 13 glibc x86_64 | ISDB-T 527143 kHz 1800秒。20,666,794 packets / 3,885,357,272 bytes。sync/TEI/continuity/queue-drop/USB errors 0、empty intervals 1,563,574、exit 0。受信中に実PC/SC `scriptor` APDU 290/290成功（全てSW 90 00）。中間statusはready/streaming、errors 0。 | ISDB-T 527143 kHz 10秒（115,834 packets / 21,776,792 bytes）、ISDB-S 1049480 kHz slot 0 LNB 0V 10秒（116,668 packets / 21,933,584 bytes）、全エラー0、exit 0。直接カードstatus/ATR、APDU 10回成功。 | カード抜去時`card-present=no`、generation 1→2、APDUは`NO_CARD`（exit 9）、`pcsc_scan`でCard removed。再挿入後generation 3、直接ATR/reset/APDU 10回、PC/SC reset/APDU成功、再挿入後T 5秒（57,901 packets）エラー0。USB切断時旧daemon生存も`DISCONNECTED`（exit 7）、再接続時USBデバイス番号024で再列挙されても旧daemonは自動復帰せず。旧daemon停止・同一候補daemon新規起動で復帰確認（T 10秒 115,834 packets、S 0V 10秒 160,718 packets、全エラー0）。 |
+| PX-S1UR<br>HAOS SCS<br>Debian 13 glibc x86_64 | ISDB-T 527143 kHz 1800秒。20,667,610 packets / 3,885,510,680 bytes。sync/TEI/continuity/queue-drop/USB errors 0、empty intervals 1,568,298、exit 0。受信中に実PC/SC `scriptor` APDU 70/70成功（全てSW 90 00）。中間statusはready/streaming、errors 0。 | 直接カードstatus/ATR、APDU 10回成功。実PC/SC `scriptor`でS1URリーダー選択、resetおよびAPDU SW 90 00成功。同一daemon上でISDB-T 527143 kHz 5秒受信を2回実施し（58,714 packets、57,899 packets、全エラー0、exit 0）、clean stop/reopenを確認。初回の試験コマンドは`--group`フラグ欠落による`INVALID_ARGUMENT`であり、修正後の実行で合格（運用上の指定漏れであり製品不具合ではない）。 | カード抜去時`card-present=no`、generation 1→2、直接`card-atr`は`NO_CARD`（exit 9）、`pcsc_scan`でCard removed。再挿入後generation 3、直接ATR/reset/APDU 10/10（SW 90 00）、実PC/SC reset/APDU（SW 90 00）成功、再挿入後T 5秒（57,898 packets / 10,884,824 bytes）全エラー0。USB切断時旧daemon・`pcscd`生存も`DISCONNECTED`（exit 7）、`pcsc_scan`でCard removed。再接続時USBデバイス番号026で再列挙されても旧daemonは`DISCONNECTED`（exit 7）のまま自動復帰せず。旧daemon停止・同一候補daemon新規起動でready/free復帰、実PC/SC reset/APDU（SW 90 00）および直接APDU 10/10成功。再起動後T 10秒（115,833 packets / 21,776,604 bytes、sync/TEI/continuity/queue-drop/USB errors 0、exit 0）で復旧確認（restart-based recovery）。 |
+| PX-M1UR<br>HAOS Supervisor<br>Alpine musl x86_64 | 30分soakは未実施。 | ISDB-T 527143 kHz 約32秒（368,794 packets / 69,333,272 bytes）、ISDB-S 1318000 kHz slot 0 LNB 0V 約32秒（510,788 packets / 96,028,144 bytes）、全エラー0、exit 0。衛星15V要求は`UNSUPPORTED`（exit 3）で拒否。直接カードATR/reset/APDU 10回、PC/SC `opensc-tool` APDU SW 90 00成功。 | 物理ホットプラグ（カード抜去・USB抜差し）は未実施。 |
+| PX-S1UR<br>HAOS Supervisor<br>Alpine musl x86_64 | 30分soakは未実施。 | ISDB-T 527143 kHz 約32秒（367,978 packets / 69,179,864 bytes）、全エラー0、exit 0。直接カードATR/reset/APDU 10回、PC/SC `opensc-tool` APDU SW 90 00成功。初回はrunnerがISDB-Tへ衛星専用の`--lnb-voltage 0`を渡して失敗し、修正後の再実行で合格。 | 物理ホットプラグ（カード抜去・USB抜差し）は未実施。 |
+| PX-M1UR<br>M2 Mac mini<br>macOS 26.6.2 arm64 | 30分soakは未実施。 | ISDB-T 527143 kHz 10秒（116,651 packets / 21,930,388 bytes）、ISDB-S 1318000 kHz slot 0 LNB 0V 10秒（159,909 packets / 30,062,892 bytes）、全エラー0、exit 0。同一daemon上でISDB-T 527143 kHz 5秒受信を2回実施（各59,531 packets、全エラー0、exit 0）しclean stop/reopenを確認。Homebrew `pcsc-lite`実consumerで13バイトATR、reset、APDU 10/10成功（SW 90 00）。 | カード抜去時`card-present=no`、generation 1→2、直接`card-atr`は`NO_CARD`（exit 9）、Mac PC/SC consumer接続失敗（exit 1）。再挿入後generation 3、直接ATR/reset/APDU 10/10（SW 90 00）、Mac native PC/SC reset/APDU 10/10（SW 90 00）成功、再挿入後T 5秒（58,714 packets / 11,038,232 bytes、全エラー0、exit 0）。USB切断時旧daemonは`DISCONNECTED`となり自動復帰せず、再接続後`px4d --list`で認識、同一候補daemon再起動で復旧確認（先行試験の再起動後T 10秒 116,651 packets、S 10秒 159,909 packets、全エラー0、restart-based recovery有効）。 |
+| PX-S1UR<br>M2 Mac mini<br>macOS 26.6.2 arm64 | ISDB-T 527143 kHz 1800秒。20,667,610 packets / 3,885,510,680 bytes。sync/TEI/continuity/queue-drop/USB errors 0、empty intervals 1,439,275、exit 0。受信中に実PC/SC consumer APDU 290/290成功（全てSW 90 00）。中間statusはready/streaming、errors 0。 | ISDB-T 527143 kHz 10秒（116,650 packets / 21,930,200 bytes、全エラー0）。直接カードstatus/ATR、APDU 10回成功。実PC/SC consumerでATR取得、reset、受信中APDU 10/10成功。macOS上で同一daemonのstop/reopenは未実施。 | カード抜去時`card-present=no`、generation 1→2、APDUは`NO_CARD`（exit 9）、PC/SC接続失敗（exit 1）。再挿入後generation 3、直接ATR/reset/APDU 10回、PC/SC ATR/reset/APDU 10/10成功、再挿入後T 5秒（57,901 packets）エラー0。USB切断時旧daemon生存も`DISCONNECTED`（exit 7）、PC/SC接続失敗（exit 1）。再接続時新USBインスタンス認識も旧daemonは自動復帰せず。旧daemon停止・同一候補daemon新規起動で復帰確認（再起動後T 10秒 115,835 packets、全エラー0）。 |
+
+### 補足事項・運用上の確認事実
+
+- **USB切断・再接続時の復旧挙動**: 物理切断を行ったnative pathでは、USB切断時に旧daemonプロセスは終了せず`DISCONNECTED`を返し続けた。USB再接続後も旧daemonが同一プロセス内で自動再接続することは観測されず、旧daemonを終了して同一候補版バイナリを再起動することで正常復帰を確認した（restart-based recovery）。Alpine add-onでは物理切断を試しておらず、同一プロセス内での自動再接続も立証していない。
+- **未検証項目とサポート主張の扱い**: 本記録はCI push-run候補バイナリによる個別アクセスパスの実機試験結果であり、公開版v0.1.7や最終リリース成果物の認定ではない。SPEC 10.3に基づき、各環境で実際に確認された事実のみを記録し、未試験項目（S1UR Latitudeでの30分PC/SC併走、M1UR macOSでの30分soak、Alpineでの30分soakや物理ホットプラグなど）への推論による`runtime-supported`の昇格は行わず、判定を保留（pending）とする。
+- **30分試験の原始出力**: 保存先はHAOSのCodexセッショントランスクリプト `/config/.tools/codex-home/sessions/2026/09/26/rollout-2026-09-26T19-34-40-01a0dd48-080b-7171-8e78-91710ff6cb17.jsonl`。候補版の`px4-ts`終了出力は、PX-M1UR Latitude ISDB-Tがordinal 19071（2026-09-29 10:43:05 UTC、`empty-intervals=1592300`）、PX-S1UR Latitudeが20543（11:35:05 UTC、`1591871`）、PX-M1UR Latitude ISDB-Sが23379（13:40:08 UTC）、PX-S1UR HAOS SCSが23619（13:48:31 UTC、`1568298`）、PX-M1UR HAOS SCSが27254（16:29:48 UTC）、PX-S1UR macOSが27377（16:36:12 UTC、`1439275`、`PX4_TS_EXIT=0`）に残る。独立した実行で同一packet数となったS1UR3件の理由は未解明であり、パケット内容が同一または異なることの証拠にはしない。各試験のモデル・host・時刻・候補archiveの対応は上表と同セッション内の起動・状態・PC/SC出力に記録されている。
+
+### Android Termux（正式launcherの1-FD経路）
+
+同じCI push-run候補 `2f555ff0542c7a36fb2565b64ebc0703f44a0931` と上記SHA-256のfirmwareを使用し、各機種を個別に接続した。Android用アーカイブのSHA-256はaarch64が`84111dfd45833cd6e8157b7a593d74557eb5fdd90c108fa10f93f98ba4537970`、armv7aが`689238dd1431b3a2974b6a86d25f240d2bfc8dfe6f6e0456b981e2e49c8a32b1`、x86_64が`a3aa155cdb3d3a6b1e543d3eb7fd4295fa4c078cff36fdc2381c58ccc91625ca`であり、それぞれ外側と展開後のチェックサムを照合した。いずれも`px4-termux`へUSB FDを1つだけ渡し、LNB 15Vは要求していない。
+
+| 実機 / Termux | PX-M1UR `0511:0854` | PX-S1UR `0511:0855` |
+|---|---|---|
+| Pixel 9a / Android 17 / aarch64 / Termux 0.118.3 | 1 receiver ISDB-T/S。地デジ10秒115,835 packets、衛星0V 10秒159,907 packets、再地デジ15秒172,954 packets。受信中APDU 10回完走（最終SW 90:00）。 | 1 receiver ISDB-Tのみ。地デジ10秒115,835 packets、再受信15秒173,770 packets。衛星要求は`INVALID_ARGUMENT`（0 packets）。受信中APDU 10回完走（最終SW 90:00）。 |
+| Google TV Streamer / Android 14 / armv7a / Termux 0.119.0-beta.3 | 1 receiver ISDB-T/S。地デジ10秒116,650 packets、衛星0V 10秒161,540 packets、再地デジ15秒172,955 packets。受信中APDU 10回完走（最終SW 90:00）。 | 1 receiver ISDB-Tのみ。地デジ10秒116,650 packets、再受信15秒173,771 packets。衛星要求は`INVALID_ARGUMENT`（0 packets）。受信中APDU 10回完走（最終SW 90:00）。 |
+| IP3 GT1 / Bliss OS Android 13 / x86_64 / Termux 0.118.3 | 1 receiver ISDB-T/S。地デジ10秒115,835 packets、衛星0V 10秒159,908 packets、再地デジ15秒173,771 packets。受信中APDU 10回完走（最終SW 90:00）。初回の機器初期化のみ`TIMEOUT`（exit 5）で、USB許可を再要求した2回目と、再要求しない3回目は起動成功。その後の物理挿し直し後の初回起動も成功したが、最初の失敗原因は未特定。 | 1 receiver ISDB-Tのみ。初回起動成功。地デジ10秒115,834 packets、再受信15秒172,954 packets。衛星要求は`INVALID_ARGUMENT`（0 packets）。受信中APDU 10回完走（最終SW 90:00）。 |
+
+各受信の`bytes = packets × 188`、sync/TEI/continuity/queue-drop/USB errorsはすべて0で、captureはexit 0。各pathで直接IPCのカードATR・reset・APDU反復、受信中のカード操作、停止後の再受信、launcher終了後のprocessとIPC socketの残留なしを確認した。Bliss OSのM1UR初回起動失敗は合格結果に埋めず、初回起動の信頼性は未確定とする。Termux上でカード抜去/再挿入および受信中のUSB切断/再接続は試験していないため、SPEC 10.3の`card-core-hardware-verified`・`tuner-hardware-verified`・`runtime-supported`の全条件を満たしたとの主張はしない。Android APK経路は別製品側で確認する予定であり、本記録に含めない。
+
+### Q3U4 exact-candidate short regression for shared-source impact
+
+Candidate `2f555ff0542c7a36fb2565b64ebc0703f44a0931`（firmware SHA-256 `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`）について、single-receiver向け変更がQ3U4へ影響しないことを確かめるため、同一PX-Q3U4 `00001205000960`でSCS native/glibcとHAOS Alpine/muslの8 receiver混在負荷を各10分以上実施した。SCS archive SHA-256は`ae2ac0c3c88dc95a948929784bb2d6813522cf1526d21383a7a3339f1c6da8eb`、Alpine archive SHA-256は`e283d88f1a529a2d9aa76043d08a0563e2ba5acd6dc7535b054002d29a95595d`。
+
+Alpineでは先行するrun `20260930T041427Z`があり、px4d ready後に8つの`px4-ts`すべてが`TIMEOUT`・0 packetsで終了したため、10分回帰としては不合格であり集計に含めていない。停止後のresidualsはなく、原因は確定していない。後続の採用runは、Q3U4の15V adapterと両RF leadsを接続した後に別々に実施した。失敗runの詳細は下記実行記録を参照。
+
+| Runtime/access path | 8 receiver T/S mixed load | status + card / PC/SC | stop/reopen、終了処理 |
+|---|---|---|---|
+| HAOS SCS native Debian/glibc x86_64 | receiver 0–7が638秒同時稼働。各receiverは正のTS packet/byteを出力し、receiver 0–6はsync/TEI/continuity/queue/USB error 0、exit 0。receiver 7は`STREAM_END error=0`、TEI 10,944、continuity 569、sync/queue/USB error 0、exit 8。 | status 20/20、card APDU 20/20 batch（各10回）が成功。開始時にもAPDU成功。 | 全stream停止後、receiver 2を10秒ずつ2回再openし、両方exit 0。再open後のstatus/APDUも成功。px4d、streamおよびUSB nodeの残留なし。 |
+| HAOS Supervisor Alpine/musl x86_64 | 600秒の設定時間を完走。receiver 0–6は各約6.96–7.03M packets、sync/TEI/continuity/queue/USB error 0、exit 0。receiver 7は6,963,968 packets、TEI 10,972、continuity 606、sync/queue/USB error 0、exit 8相当の既知burst。runnerは`known-receiver7-burst-nonblocking`として記録し、全体`status=passed`。 | status 88/88でUSB/protocol error 0。direct APDU、PC/SC readerおよびAPDUが成功し、card sample failure 0。 | 別の10秒runで8 receiverを全てstop/reopenし、8/8 exit 0・TS/USB error 0。両runとも`residuals=none`。試験用Supervisor optionsを開始前の値へ復元し、add-onを停止。 |
+
+SCSのreceiver 7 burstは`px4-ts`がexit 8を返すため、その実行ラッパー全体の終了値は非zeroである。既存の同一Q3U4 receiver 7参照記録（同一T22、約11k TEI）と既知の短時間burst記録に照らして保存し、無条件のclean結果とは扱わない。今回のcandidate差分では、`it930x.cpp`のGPIO変更は`BoardLayout::single_receiver`だけに適用され、`q3u4_stream.cpp`の追加`plain_ts`判定より前にQ3U4の既存`dual_system`分岐が返るため、Q3U4の受理系・TS処理は変更されない。このcall-path proofと両runtimeの短時間回帰に基づき、今回変更起因のQ3U4 2時間soakはtriggerしない。周期再認定の独立gateは引き続き適用する。実行ログは`/config/.work/px4-m1ur-s1ur/q3u4-short/EXECUTION-20260930.md`およびその記載先に保管した。
+
+## 2026-09-29 PX-M1UR / PX-S1UR 候補版のLinux実機試験
+
+Latitude 5300 / AnduinOS 2.0.3（Linux x86_64 / glibc 2.43、native libusb）で、
+CIの**push-run候補** `2f555ff0542c7a36fb2565b64ebc0703f44a0931` を試験した。
+使用した`px4-userland-0.1.7-linux-glibc-x86_64.tar.gz`のSHA-256は
+`ae2ac0c3c88dc95a948929784bb2d6813522cf1526d21383a7a3339f1c6da8eb`、
+manifestの`source_ref`は同じcommitである。archive名の`0.1.7`は候補ビルドのラベルであり、
+公開済みv0.1.7のバイナリではない。firmwareのSHA-256は
+`5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`。
+両機種のUSB serialは`000000000000001`で、それぞれ別のUSB IDで識別し、1台ずつ接続した。
+以下の結果はこの候補とこのLinux native pathに限る。
+
+| Model / USB ID | 30分連続受信 | 受信・カード・USBの追加確認 | PC/SC併走10分 |
+|---|---|---|---|
+| PX-M1UR `0511:0854` | receiver 0、ISDB-T 527143 kHz、20,667,610 packets / 3,885,510,680 bytes。sync/TEI/continuity/queue-drop/USB errorsは全て0、exit 0。 | 1 USB / 1 receiver / ISDB-T/Sの列挙、ISDB-T/S 0V受信、同一leaseのT→S→T→S→T、15V要求のopt-inなし・あり双方で`UNSUPPORTED`、カード抜去/再挿入・ATR/reset/APDU、USB切断・再接続後にdaemon新規起動してT/Sとカードの復帰を確認。 | 527143 kHz、6,889,450 packets / 1,295,216,600 bytes。TS/USB errorsは全て0、exit 0。実PC/SC consumer `scriptor`の受信中APDU 60/60成功。 |
+| PX-S1UR `0511:0855` | receiver 0、ISDB-T 527143 kHz、20,667,610 packets / 3,885,510,680 bytes。sync/TEI/continuity/queue-drop/USB errorsは全て0、exit 0。 | 1 USB / 1 receiver / ISDB-T専用の列挙、ISDB-S要求の拒否、527143→521143→527143 kHzの同一lease retuneで3区間全てlock・TS errors 0、カード抜去/再挿入・ATR/reset/APDU、USB切断・再接続後にdaemon新規起動してTとカードの復帰を確認。 | 527143 kHz、6,889,450 packets / 1,295,216,600 bytes。TS/USB errorsは全て0、exit 0。実PC/SC consumer `scriptor`の受信中APDU 60/60成功。 |
+
+両機種ともPC/SCのリセットと反復APDUを実consumerから確認した。USB切断後の旧daemonは
+アイドル時に`DISCONNECTED`を返し続けたため、停止してから同じ候補版を新規起動した。
+同一プロセスでの自動再接続は立証していない。試験後はdaemonを停止し、PC/SCサービスを
+試験前の停止状態へ戻し、一時reader設定を退避した。
+
+この記録はPX-M1UR / PX-S1URについて、上記Linux native pathの
+`tuner-hardware-verified`、`card-core-hardware-verified`、`native-card-adapter-verified`の
+個別証拠である。一方、上記表中のPC/SC併走10分短縮は初期の試験運用であり、
+現行SPEC 10.2.7・10.3の30分条件を変更・緩和しない。同日夜の追試において、PX-M1URはLatitude上で
+ISDB-S 0V（1318000 kHz、slot 0）の1800秒連続受信とnative PC/SC併走（`scriptor` APDU 10×5=50/50成功、
+28,619,541 packets / 5,380,473,708 bytes、TS/USB errors 0）を完走した。
+一方、PX-S1URのLatitude環境自体は依然として10分native PC/SC併走（6,889,450 packets、APDU 60/60成功）に
+とどまる（後続試験として別pathのHAOS SCS上でISDB-T 1800秒+native PC/SC 70/70完走を記録したが、
+Latitude native pathの代替とはならない）。
+したがって「両機種ともPC/SC併走が10分帯までしか観測されていない」という初期の記述は不正確であり、
+M1UR（Latitudeでの衛星0V）およびS1UR（HAOS SCSでの地上波）で30分併走を確認済みである。
+ただし、S1URのLatitude native path単体では30分PC/SC併走を満たしておらず、M1URのLatitude地上波におけるPC/SC併走も
+10分にとどまるため（地上波30分はdirect IPCのみ）、この段階では`runtime-supported`の証拠としない。
+Windows / WebTS.app、Androidその他の未試験runtimeへ外挿しない。macOSでの直接の試験結果は前掲の別pathの行に限る。候補版全体のrelease canaryとPR mergeも別gateである。
+
+## 2026-09-29 PX-M1UR 認定途中（v0.1.7）
+
+Latitude 5300 / AnduinOS 2.0.3（Linux x86_64 / glibc 2.43）で、PX-M1UR `0511:0854` を
+v0.1.7の正式Linux glibc x86_64 archive（source commit
+`b7685ad9940e278bdb0809dec4cc92247b8844ec`、archive SHA-256
+`b137938e778b2dccc0b9a1f1ede14040bbc94826d187e5a424f740c4d9ca2acd`）から実測した。
+この記録は認定完了や、他OS・他architectureへのサポート主張ではない。
+
+- receiver 0のISDB-T 527143 kHzを正式`px4-ts`で単一の連続1800秒取得。20,667,610 packets、
+  3,885,510,680 bytes、sync/TEI/continuity/queue-drop/USB errorsはすべて0。取得中のdirect APDUも成功した。
+  これ以前の別の5分試行ではcontinuity errorが1件あり、原因未解明の失敗として保持する。
+- ISDB-TとISDB-S（1318000 kHz、slot 0、LNB 0V）の短時間取得、同一leaseのT→S→T→S→T、
+  card抜去・再挿入、T/S取得中のnative PC/SCによるATR・APDU・resetを確認した。
+- 壁設備から分離した開放端で、`px4d --allow-lnb-power`と`px4-ts --lnb-voltage 15`を指定しても
+  30秒間0Vのままであった。計器は別途乾電池で1.5Vを示した。無信号のためtune自体はtimeoutした。
+  この測定はPX-M1URのLNB 15V出力を立証しない。参照ドライバでもM1URの給電callbackは無効であり、
+  SPEC v0.22では15V出力を対応範囲から除外した。
+- 当時のv0.1.7コードは、opt-in時にPX-M1URの15V要求を拒否せずGPIO 11を書き込むためSPEC v0.22と
+  不一致だった。このv0.1.7記録だけではPX-M1URをhardware-verifiedとしない。後続candidateの修正・認定結果は
+  本文冒頭の2026-09-30 candidate記録を参照する。
+
+参照ドライバ: [Linux M1UR source](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/m1ur_device.c)、
+[WinUSB M1UR source](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/winusb/src/DriverHost_PX4/isdb2056_device.cpp)。
+
+同じ参照revisionのLinux driverでは、DTV02-1T1S-U / DTV02A-1T1S-Uに対応する
+[ISDB2056 / ISDB2056N](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/isdb2056_device.c)も
+LNB setterが無効で、GPIO 11初期化は無効化されている。
+[S1UR / ISDBT2071](https://github.com/tsukumijima/px4_drv/blob/c995c10138368283a720cec4fcbca157ccc0dbd3/driver/s1ur_device.c)は
+地上波専用でGPIO 11初期化経路を持たない。これらは参照実装との一致を示すだけで、手元にない機種の
+実機電圧・受信動作を確認したことにはならない。
+
 ## 2026-09-05 共通回帰
 
 | 環境 | arch/libc | revision | 確認内容 |
