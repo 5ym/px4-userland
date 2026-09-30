@@ -8,10 +8,11 @@
 
 ## Supported scope
 
-- Runtime targets are Linux (including environments where kernel modules cannot be installed), Android/Termux, Android/ad-hoc APK testing, and macOS.
+- Runtime targets are Linux (including environments where kernel modules cannot be installed), Android/Termux, and macOS.
 - Every target runtime must support both the tuners and its internal card reader.
 - Windows is outside the product scope. Windows users may use `tsukumijima/px4_drv`, which is a separate product with a different CLI and IPC interface.
-- The Android APK is an ad-hoc hardware test path, not a release artifact.
+- Android ad-hoc APK hardware testing is owned by dtv-android and is outside this repository's release gates and support claims. The APK is not a release artifact.
+- FreeBSD is outside the product scope; validation-results.md entries for it are historical only.
 - Firmware is not distributed, downloaded, extracted, or transformed by this repository.
 
 ## Implementation rules
@@ -56,8 +57,9 @@
 ## Stable release validation
 
 - Stable 公開前の検証は [`docs/release-validation.md`](docs/release-validation.md) の順に行う。判定条件の正本は `SPEC.md` の10章であり、手順書との不一致はSPECを優先して手順書を直す。
-- 全OS・全機種の一律回帰を行わず、毎回必須のCI/candidate audit/canaryと、SPEC 10.5.1/10.5.2のtriggerが成立するtargeted検証を分ける。条件にないlong soakや独自の巨大検証scriptを追加しない。
-- 実施・省略・未認定の根拠と失敗試行を記録する。物理USB/cardの抜差しはユーザーの確認なしに行わない。
+- 全OS・全機種の一律回帰を行わない。毎回必須のCI/candidate auditとcanaryを行い、SPEC 10.5.1/10.5.2のtriggerが成立する場合だけtargeted検証とlong soakを行う。long soakはreleaseあたり最大1つのruntime/access pathで実施し、時間経過・release回数だけを理由にした周期gateは設けない。独自の巨大検証scriptを追加しない。
+- 検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一し、証拠は [`docs/platforms/validation-results.md`](docs/platforms/validation-results.md) へ記録する。実施・省略・非該当の根拠と失敗試行を残す。物理USB/cardの抜差しはユーザーの確認なしに行わない。
+- Android ad-hoc APKの実機検証はdtv-android所管であり、本リポジトリのrelease gateに含めない。Windowsは対象外、FreeBSDも対象外とする。
 
 ## Handoff requirements
 

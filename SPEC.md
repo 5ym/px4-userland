@@ -1,16 +1,39 @@
 # px4-userland 仕様
 
-Status: Frozen v0.24 (2026-09-30)
+Status: Frozen v0.25 (2026-10-01)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
 
+v0.25ではStable検証を変更影響による選択制へ統合する。6か月または6回目のStableによるQ3U4の周期再認定を削除し、
+long soakは変更・観測異常・未認定claimに基づくtriggerがある場合だけ行う。releaseごとのlong soakはQ3U4・追加profileを
+含め最大1つのruntime/access pathに限定し、canaryはcanonical環境ID E01–E17から決定的に選ぶ。検証状態の語彙を
+`継承` / `今回再検証` / `未認定` / `対象外`に統一し、環境ledgerと環境別手順は`docs/release-validation.md`へ置く。
+Android ad-hoc APKの実機検証はdtv-android所管として本リポジトリのrelease gateから除外する。FD数とRSSは
+手順どおり記録し、数値の合否基準は設けない。記録系列が最終観測まで安定化しない持続的な増加を示し、外部要因も
+特定できない場合、そのsoakは`判定保留`としてpassにしない。
+
 v0.23では10.5.2のlong soak triggerを、変更が影響するmodel/profile/topologyへ限定する。Q3U4へ
 影響しないと立証された追加profile固有の変更だけを理由に、Q3U4の代表2時間soakを要求しない。一方、
-Q3U4に影響する変更と周期再認定の2時間soak、追加profileの10.2.7認定、共通実装の影響除外に必要な証拠は維持する。
+Q3U4に影響する変更と周期再認定の2時間soak、追加profileの10.2.7認定、共通実装の影響除外に必要な証拠は維持する
+（周期再認定はv0.25で削除。以下はv0.23時点の記録）。
 
 v0.24ではPX-M1URとPX-S1URのcanonical Linux x86_64 profile認定完了を反映する。各runtime/access pathの
 hardware claimは10.2.8・10.3と個別の検証記録に従い、未実施のpathへ拡張しない。
+
+### v0.25 change record (2026-10-01)
+
+- 10.5、10.5.2節: 6か月または6回目のStableによるQ3U4周期再認定（旧1057-1059行）を削除する。long soakは
+  10.5.1の影響分類、観測された異常、未認定claimのいずれかによるtriggerがある場合だけ行い、releaseあたり
+  最大1つのruntime/access pathで実施する。glibc/musl双方をsoakする要件を削除し、両libcの差は10.5.2の
+  10分短時間回帰で覆う。canonical環境ID E01–E17とcanary/soakの選定順は`docs/release-validation.md`に定める。
+- 10.5節: 検証状態を`継承` / `今回再検証` / `未認定` / `対象外`に統一し、canaryの同一lease retuneは
+  IPC/lease/retune、frontend/tune、device identityの変更時に限る。それ以外はoffline CIの成功を記録する。
+- 10.2.6a節: 周期再認定時のreceiver 7 fresh比較要求を削除し、変更影響によるtriggerのみ残す。
+- 1、2.1、2.2、7.2、10.3節: Android ad-hoc APKを本リポジトリのrelease gateおよびsupport claimから除外し、
+  dtv-android所管とする。APK経路の実機試験は本リポジトリのStable gateに含めない。
+- 10.5.2節: FD数・RSSは記録と傾向のみとし、数値の合否基準を設けない。記録系列が最終観測まで安定化しない
+  持続的な増加を示し外部要因を特定できないsoakは`判定保留`とし、passにしない。
 
 ### v0.24 qualification record (2026-09-30)
 
@@ -25,7 +48,7 @@ hardware claimは10.2.8・10.3と個別の検証記録に従い、未実施のpa
   targeted再検証を要求する。共通実装に触れた場合はQ3U4経路の非影響を記録し、両Linux runtimeで短時間回帰
   を行う。影響不明または回帰失敗なら免除しない。
 - 10.5.2節: 6か月または6回目のStable releaseで先に来る周期再認定は、変更影響と独立したQ3U4代表2時間
-  soakのtriggerとして維持する。10.2.6aのreceiver 7 fresh比較も維持する。
+  soakのtriggerとして維持する。10.2.6aのreceiver 7 fresh比較も維持する（両方ともv0.25で削除）。
 
 v0.22ではsingle receiver機種のLNB 15V給電を対応profileから除外する。PX-M1URの実機開放端測定は
 0Vのままであり、参照`px4_drv`ではPX-M1UR・ISDB2056/ISDB2056NのLNB setterが無効、S1UR/ISDBT2071
@@ -154,7 +177,7 @@ support matrixと実機検証経路は次のとおりとする。
 | Android | Pixel 9a / aarch64 / Termux | `termux-usb`および`px4-termux`による2 fd渡し | 正式launcherの実機回帰（Bionic CLI、portable IPC） |
 | Android | Google TV Streamer / armv7a / Termux | `termux-usb`および`px4-termux`による2 fd渡し | 正式launcherの実機回帰（Bionic CLI、portable IPC） |
 | Android | Bliss OS / x86_64 / Termux | `termux-usb`および`px4-termux`による2 fd渡し | 正式launcherの実機回帰（Bionic CLI、portable IPC） |
-| Android | Google TV Streamer / ad-hoc APK | Android USB Host APIからfd渡し | armv7a native coreをAPK processから利用する経路 |
+| Android | Google TV Streamer / ad-hoc APK | Android USB Host APIからfd渡し | 対象外（dtv-android所管。本リポジトリのrelease gateに含めない） |
 | macOS | Apple Mac mini / M2 | native libusb | tuner、card core、PC/SC adapter |
 | Windows | unsupported | 対象外 | `tsukumijima/px4_drv`を利用する。px4-userlandのCLI/IPCとは非互換 |
 
@@ -172,7 +195,8 @@ support matrixと実機検証経路は次のとおりとする。
 - muslおよびBionicでビルドし、glibc固有APIやGNU拡張へ依存しない。
 - 派生コードのライセンスをGPL-2.0-onlyとする。
 - Linux/macOSではPC/SC IFD Handlerを提供し、Androidではportable IPCを公開する。
-- Linux、Android Termux、Android APK、macOSの各runtime経路でチューナーと内蔵カードリーダーを扱う。
+- Linux、Android Termux、macOSの各runtime経路でチューナーと内蔵カードリーダーを扱う。Android ad-hoc APKの
+  実機検証はdtv-android所管とし、本リポジトリの配布物・release gateには含めない。
 - 最終ツリーから、カーネルモジュール、DKMS、カーネル用chardev、非対象機種、旧Windows専用ホストなど、
   portable Q3U4 userland実装に不要なコードと配布処理を削除する。
 
@@ -186,7 +210,8 @@ support matrixと実機検証経路は次のとおりとする。
 - PX-MLT5U、ISDB6014、その他v0.18の4.1表にない機種の動作保証。
 - v0.18で追加した12機種は実装・識別対象であり、全体を一律にhardware-verifiedとは扱わない。
   機種profileの認定状況とruntime/access path別claimはREADMEとevidence recordに明記する。
-- 配布用Android APKまたはdtv-androidへの統合。Google TV Streamer実機検証用のad-hoc APKは試験器具として許容する。
+- 配布用Android APKへの統合。ad-hoc APKによる実機検証は本リポジトリのrelease gateではなくdtv-android側で扱い、
+  本リポジトリのrelease artifactと検証gateにAPKを含めない。
 - B-CAS/ACASの暗号処理、ECM処理、TSのスクランブル解除。
 - ネットワーク越しの利用。IPCは同一ホスト内に限定する。
 - Windows用runtime、adapter、CLI/IPC互換層、配布物、build-only gate。Windows利用者向けの
@@ -695,9 +720,8 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
   回収（reap）し、固定40秒の猶予内にグループの消滅を確認してから終了する。40秒の猶予内に終了しない場合のみSIGKILLを使用し、
   標準エラー出力へ graceful cleanup、LNB 0V、およびruntime endpoint削除を保証できない旨を警告する。第2open失敗、シグナル受信、
   USB切断のいずれにおいても有限時間で終了する。ランチャーは利用者が指定したruntime rootを自動で再帰削除しない。
-- APK試験ではAndroid USB Host APIでQ3U4の両deviceへpermissionを取得し、detachしないfdをnative側へ渡す。
-- ad-hoc APKはUSB permission、2 fdの対応付け、8 receiver、card APDU、detach/reconnectを検証できればよく、
-  製品UI、自動更新、配布署名、ストア公開を要件にしない。APKはrelease artifactへ含めない。
+- Android ad-hoc APK（Android USB Host APIからfdをnative側へ渡す経路）の実機検証はdtv-android所管であり、
+  本リポジトリのrelease artifact・release gate・claimに含めない。APKはrelease artifactへ含めない。
 
 ### 7.3 Linux/macOS native linkage
 
@@ -819,8 +843,8 @@ px4-userlandのburstが参照結果より悪化せず、追加のUSB error、que
 `v0.1.0 Beta`では、receiver 0--6は2時間soakでerror 0だった。receiver 7はTEI `10974`、
 `continuity_errors=453`を記録した。同一試験個体では、参照`tsukumijima/px4_drv`でも約11k TEIの署名が再現した。
 この結果は10.2.6aの既知制限の初期証拠として扱う。`px4-ts`はTS integrity errorをCLI exit code 8で報告する。
-receiver 7の比較証拠は、Q3U4のstream、demux、transport、concurrencyまたはpowerに影響する変更時、および10.5の
-周期再認定時にfreshでなければならない。これらに影響しない変更では既存比較を継承できる。release recordへbaselineと
+receiver 7の比較証拠は、Q3U4のstream、demux、transport、concurrencyまたはpowerに影響する変更時に
+freshでなければならない。これらに影響しない変更では既存比較を継承できる。release recordへbaselineと
 継承または再取得の理由を記録する。
 
 ### 10.2.7 Additional Q3/MLT/1-receiver profile hardware acceptance
@@ -873,9 +897,10 @@ qualification evidenceは少なくとも次の独立軸を持つ。各レコー�
 | Test context | host/device identity、runtime version、実施日時、試験条件、結果、ログまたは保存先 |
 
 未観測のmodel × runtime/access path × feature/pathの直積をhardware-verifiedと主張してはならない。別runtimeの同じmodel、
-別modelの同じruntime、または未試験featureへの推論は認めない。baseline evidenceがあり、その証拠以後の変更が対象pathへ
-影響しないと10.5の表で判定できる場合に限り、evidence inheritanceを認める。影響がunknownまたはambiguousなら継承せず、
-対象pathのtargeted requalificationを行う。
+別modelの同じruntime、または未試験featureへの推論は認めない。同一model・同一runtime/access path・同一featureの
+baseline evidenceについて、対象artifactのbytesが同一であるか、その証拠以後の変更が対象pathへ影響しないと10.5の表で
+判定できる場合に限り、evidence inheritanceを認める。影響がunknownまたはambiguousなら継承せず、
+対象pathのtargeted requalificationを行う。観測された失敗は原因を切り分けるまで、そのhost/device tupleに限定して扱う。
 
 ### 10.3 Cross-platform support claims
 
@@ -913,11 +938,12 @@ featureのhardware evidenceがない場合は`build-tested / hardware-unverified
 | Pixel 9a / aarch64 / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
 | Google TV Streamer / armv7a / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
 | Bliss OS / x86_64 / Termux | 正式launcher、2-FD、Bionic CLI、T/S、内蔵card、process/FD/endpoint cleanup |
-| Google TV Streamer / ad-hoc APK | USB permission、FD wrap、T/S、内蔵card、Android USB Host path |
+| Google TV Streamer / ad-hoc APK | 対象外。実機検証はdtv-android所管であり、本リポジトリのevidence recordへ取り込まない |
 | M2 Mac mini / macOS | native libusb、grouping、T/S、内蔵card、実PC/SC consumer |
 
-TermuxとAPKは同一hardwareでも別access pathである。SCS native、HAOS Alpine add-on、native Linux、macOSもそれぞれ
-別runtime pathであり、証拠が直接存在するか継承条件を満たす場合以外、相互に代替しない。
+TermuxとAPKは同一hardwareでも別access pathである。APK経路はdtv-android所管として本リポジトリのclaim対象外とする。
+SCS native、HAOS Alpine add-on、native Linux、macOSもそれぞれ別runtime pathであり、証拠が直接存在するか継承条件を
+満たす場合以外、相互に代替しない。
 Linux aarch64はnative build、offline test、archive auditを満たしても`build-tested / hardware-unverified`を維持する。
 証拠継承または他architecture/runtimeの実機結果だけでhardware-verifiedへ昇格させてはならない。
 
@@ -983,12 +1009,17 @@ Stable公開前に、次の条件をすべて満たすこと。
 2. 最終candidateが使用した8 binary archive、corresponding-source archive、outer checksumについて、10.4の全
    auditを完了し、再現性確認を成功させる。source commit、toolchain/build inputs、static/dynamic link inventory、relink結果、
    artifact checksum、licenseおよびsource提供条件をrelease recordに残す。
-3. 公開するfinal candidate artifactそのものを使ったhardware canaryを、少なくとも1つのmodel/runtime/access pathで
-   実施し、10分以上継続する。対象pathに適用できるlist/grouping、T/Sまたはplain TS、stop/reopen、same-lease retune、
+3. 公開するfinal candidate artifactそのものを使ったhardware canaryを、releaseごとに1回、10分以上継続して行う。
+   canaryを行う環境は`docs/release-validation.md`のcanonical環境ID E01–E17から次の順で選ぶ。影響するrelease
+   artifactがない場合（docs/license/package metadataのみ、または対象artifactがbaselineとbyte-identical）は
+   E03でPX-Q3U4の8 receiver T/S混在canaryを行う。影響するartifactがある場合は、最も複雑な影響topology
+   （PX-Q3U4 > PX-M1UR > PX-S1UR）を選び、該当するOS/access pathの環境に絞り、E03、E01、E02、E04、E05、E06、E07の
+   順で最初のものを用いる。canaryには対象pathに適用できるlist/grouping、T/Sまたはplain TS、stop/reopen、
    status、搭載時のcard/APDU、正常終了、process/FD/USB endpoint等の残留確認を含め、該当しない項目は理由を記録する。
-   canaryは変更の影響を受ける中で最も複雑なtopologyを選ぶ。共有concurrency、card、power変更を、容易な単一T受信
-   だけで代表させてはならない。
-4. 物理USB detach/reconnectは人手で行う。対象pathへ影響する変更時または10.5.2の周期再認定ではcanary pathで
+   same-lease retuneはIPC/lease/retune、frontend/tune、device identityの変更時に限りcanaryで行い、それ以外は
+   offline CIの成功を引用する（手順は`docs/release-validation.md`）。canaryはrelease gateであり、それだけで
+   全機種・全runtime/access pathのhardware claimを更新しない。
+4. 物理USB detach/reconnectは人手で行う。対象pathへ影響する変更時にはcanary pathで
    実施し、device再接続後の復旧を確認する。それ以外のreleaseではdetach/reconnectを要しない。必須条件の物理操作を
    実施できない場合、その影響を受けるevidence/claimを未認定と記録する。
 5. release recordは各claimについて10.2.8のbaseline evidence、baseline以後の累積変更、impact判定、evidenceの継承または
@@ -1026,25 +1057,36 @@ path/featureを含む。表の列挙変更だけでなく、間接依存する�
 分類に当てはまらない変更、依存範囲が不明な変更、複数分類にまたがる変更はunknown/ambiguous impactとし、継承せず、
 影響し得る最小のpath集合をtargeted requalificationする。impact判定をrelease recordへ記録する。
 
-#### 10.5.2 Long soak triggers and periodic recertification
+#### 10.5.2 Long soak triggers and single-OS selection
 
 long soakは毎releaseのgateではない。10.5.1の変更分類と依存関係により、stream/queue/demux/concurrency/
 lifetime/hotplug、card、power/LNB、USB transport、IPC lease/retuneの**長時間挙動へ影響し得るmodel/profile/
 topologyとruntime/access path**を特定し、その対象にだけ変更起因のsoakをtriggerする。変更したファイル名だけで
 全modelへ影響を拡張しない一方、共通実装や間接依存の影響を根拠なしに除外しない。影響がunknown/ambiguous
 なら該当し得るpathを対象に含める。docs、license、package metadataだけの変更では新たなsoakを要求しない。
+時間経過やrelease回数だけを理由にしたsoak triggerは設けない。
 
 Q3U4 topologyへ影響する変更でtriggerされたsoakは、代表Q3U4で2時間以上行い、ISDB-T/Sを含む8 receiver
 混在負荷、反復status/APDU、定期的なretune/stop/reopen、FD数とRSSの経時傾向、正常/異常cleanupを確認する。
-Q3U4のTS条件は10.2のTS受入項目（5--8、13）および10.2.6aの受入基準を満たす。glibcとmuslの両方に
-影響する共通変更ではSCS native/glibcとHAOS Alpine/musl add-onの両経路でsoakし、一方だけに影響を
-限定できると根拠付きで判定した場合に限り当該経路だけでよい。代表Q3U4を選べない場合、該当Q3U4
-hardware claimを更新しない。
+cycle構造は既存の300秒×24 cycleを用い、cycle境界でretuneまたはstop/reopenを行ってよい。Q3U4のTS条件は
+10.2のTS受入項目（5--8、13）および10.2.6aの受入基準を満たす。代表Q3U4を選べない場合、該当Q3U4
+hardware claimを更新しない。FD数とRSSは手順どおり記録し、数値の合否基準は設けない。記録系列が最終観測まで
+安定化しない持続的な増加を示し、外部要因も特定できない場合、そのsoakは`判定保留`としてpassにせず、release前に
+原因を調査する。途中で頭打ちになる増加は自動的な失敗ではなく、証拠と理由を記録する。このdispositionはsoakの受入規則で
+あり、新しいsoak triggerでも、triggerのない追加runを要求するものでもない。
 
 Q3U4へ影響しないと立証された追加profile固有の変更は、Q3U4代表2時間soakのtriggerにしない。ただし
 変更対象の各profileについて、exact candidateで10.2.7のcanonical Linux x86_64における30分以上の
 連続受信とprofile該当機能の受入条件を満たし、影響を受ける別runtime/access pathは10.5.1に従い
 targeted再検証する。このprofile認定をQ3U4の2時間混在負荷soakと同等の試験と表現しない。
+
+long soakを実施する場合、releaseあたり1つのruntime/access pathだけを選ぶ。対象は次の順で定める。
+まず変更が作用するpath-specificな環境に絞る。次に要求topologyを安全に実行できない環境を除く。残った中で
+`docs/release-validation.md`のcanonical環境順（E03、E01、E02、E04、E05、E06、E07）の先頭を選ぶ。選択しなかった
+影響環境は、その環境に該当する10分のtargeted確認だけを行い、release recordに
+「単一OS規則によりsoak非該当（選定=E-ID）」と理由を記録する。共通のT/S/cardを持つPX-M1URを
+single receiverの代表とし、S1UR固有コードの変更時はS1URも対象にする。同一OS上で順に実行し、
+PX-M1URとPX-S1URを同時接続しない。glibcとmuslの差は本節の短時間回帰で覆い、両libcをsoakしない。
 
 Q3U4と共通の実装ファイルを変更したがQ3U4は非影響と判定する場合は、release recordに差分、
 Q3U4の呼出経路、分岐・条件コンパイル等の適用条件、変更がその経路へ作用しない根拠を記録する。
@@ -1053,10 +1095,6 @@ Q3U4の呼出経路、分岐・条件コンパイル等の適用条件、変更�
 各10分以上、statusとcard APDUの併走、stop/reopen、TS/USB errorおよび終了後の残留確認を行う。
 この短時間回帰が未実施・失敗、または非影響の根拠が曖昧なら、Q3U4を影響対象として本節のQ3U4 2時間混在負荷soak
 を適用する。短時間回帰は影響除外の補助証拠であり、Q3U4へ影響する変更の2時間soakの代替ではない。
-
-少なくとも6か月または6回目のStable releaseのうち先に到達する期限ごとに、変更影響とは独立して
-代表Q3U4 topologyを本節のQ3U4 2時間混在負荷条件で周期再認定する。この再認定時には
-receiver 7のfresh reference comparisonも行う。周期再認定はprofile固有変更によるQ3U4非影響判定で免除しない。
 
 ## 11. Implementation increments
 

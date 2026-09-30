@@ -64,7 +64,7 @@
 | macOS arm64 | PX-S1UR | 完了 | 一部実機試験（未認定） | 検証済み | 検証済み | 候補版でISDB-T 30分、PC/SC、cardおよびUSB再接続後のdaemon再起動による復旧を確認。macOS上で同一daemonのstop/reopenは未実施。同一daemonの自動USB再接続も未確認。 |
 | Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象） |
 | Android Termux（aarch64 / armv7a / x86_64） | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 該当なし（N/A） | 各architectureでT/S該当系統と受信中APDUを確認。card抜去/再挿入とUSB切断/再接続は未実施。APKは対象外。 |
-| Android ad-hoc APK | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 内部試験器具（配布物に含まれません） |
+| Android ad-hoc APK | PX-Q3U4 | 対象外 | 対象外 | 対象外 | 該当なし（N/A） | dtv-android 所管。本リポジトリの配布物・release gate には含めません（過去の内部試験記録は検証結果参照） |
 | Windows | — | — | — | — | — | 非対応 / 対象外（out of scope） |
 
 各claimは、明記したmodel/profile × runtime/access path × featureにだけ適用されます。別のmodel/profile、runtime/access path、featureへ検証結果を推論しません。表に記載のない組合せはverified claimの対象外です。
