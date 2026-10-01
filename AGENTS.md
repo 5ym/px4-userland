@@ -57,7 +57,7 @@
 ## Stable release validation
 
 - Stable 公開前の検証は [`docs/release-validation.md`](docs/release-validation.md) の順に行う。判定条件の正本は `SPEC.md` の10章であり、手順書との不一致はSPECを優先して手順書を直す。
-- 全OS・全機種の一律回帰を行わない。毎回必須のCI/candidate auditとcanaryを行い、SPEC 10.5.1/10.5.2のtriggerが成立する場合だけtargeted検証とlong soakを行う。long soakはreleaseあたり最大1つのruntime/access pathで実施し、時間経過・release回数だけを理由にした周期gateは設けない。独自の巨大検証scriptを追加しない。
+- 配布する各主要OS/architecture binary artifactについて、final candidateの実機確認を毎回行う。短時間確認の一連の操作に総時間上限を設けない。5分はユーザーの物理操作（B-CAS/USB抜去・再挿入）の応答待ち上限であり、各操作を要求するときはHAOS側でCodexは`beep`、Claude Codeは`vibe`を実行する。5分を超える連続負荷試験はsoakとして分ける。安定性に影響し得る変更のsoak有無・時間（10分/30分/2時間）・対象OSはユーザーが決める。エージェントは選ばず、判断材料を示して決定を待つ。独自の巨大検証scriptを追加しない。
 - 検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一し、証拠は [`docs/platforms/validation-results.md`](docs/platforms/validation-results.md) へ記録する。実施・省略・非該当の根拠と失敗試行を残す。物理USB/cardの抜差しはユーザーの確認なしに行わない。
 - Android ad-hoc APKの実機検証はdtv-android所管であり、本リポジトリのrelease gateに含めない。Windowsは対象外、FreeBSDも対象外とする。
 

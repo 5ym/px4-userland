@@ -924,7 +924,7 @@ Linux・Android・macOSを対象にする既存実装は確認できなかった
 
 以下はQ3U4の機種profileおよび該当feature/pathをhardware-verifiedとするqualification基準である。Stable releaseごとに
 全項目を再実行する要件ではない。結果は10.2.8のevidence単位で記録し、10.5の影響判定に従って継承または失効させる。
-新releaseには10.5のcanaryとtrigger付きsoakを適用する。
+新releaseでは10.5のartifact別短時間実機matrixを必ず実施し、soakは10.5.2に従ってユーザーが決定する。
 
 1. `px4ctl list`が2 USB deviceを1筐体へまとめ、8 receiverと1 card readerを報告する。
 2. firmwareを両IT9305Eへloadし、再openとプロセス再起動後も初期化できる。
@@ -1143,30 +1143,31 @@ Stable公開前に、次の条件をすべて満たすこと。
    同一であることをrelease record上で確認できれば一致として扱う。正規化（UUID・署名・timestampのマスク等）
    による合格は認めない。source commit、toolchain/build inputs、static/dynamic link inventory、relink結果、
    artifact checksum、licenseおよびsource提供条件をrelease recordに残す。
-3. 公開するfinal candidate artifactそのものを使ったhardware canaryを、releaseごとに1回、10分以上継続して行う。
-   canaryを行う環境は`docs/release-validation.md`のcanonical環境ID E01–E17から次の順で選ぶ。影響するrelease
-   artifactがない場合（docs/license/package metadataのみ、または対象artifactがbaselineとbyte-identical）は
-   E03でPX-Q3U4の8 receiver T/S混在canaryを行う。影響するartifactがある場合は、最も複雑な影響topology
-   （PX-Q3U4 > PX-M1UR > PX-S1UR）を選び、該当するOS/access pathの環境に絞り、E03、E01、E02、E04、E05、E06、E07の
-   順で最初のものを用いる。canaryには対象pathに適用できるlist/grouping、T/Sまたはplain TS、stop/reopen、
-   status、搭載時のcard/APDU、正常終了、process/FD/USB endpoint等の残留確認を含め、該当しない項目は理由を記録する。
-   same-lease retuneはIPC/lease/retune、frontend/tune、device identityの変更時に限りcanaryで行い、それ以外は
-   offline CIの成功を引用する（手順は`docs/release-validation.md`）。canaryはrelease gateであり、それだけで
-   全機種・全runtime/access pathのhardware claimを更新しない。
-4. 物理USB detach/reconnectは人手で行う。対象pathへ影響する変更時にはcanary pathで
-   実施し、device再接続後の復旧を確認する。それ以外のreleaseではdetach/reconnectを要しない。必須条件の物理操作を
-   実施できない場合、その影響を受けるevidence/claimを未認定と記録する。
+3. 公開するfinal candidateの配布binary archive 8種すべてについて、対応するOS/architectureの実機で短時間確認を毎回行う。
+   artifact別のhostと手順は`docs/release-validation.md`のmatrixに従い、各archive個別に列挙、daemon動作中の
+   B-CASカード抜去/再挿入（不在状態・ATR/reset・反復APDUの復帰）、短い受信、停止、USB disconnect/reconnect後の復旧、
+   process/endpoint残留確認を行う。必須確認の一連の所要時間に上限は設けず、archive間で証拠を代用しない。
+   5分を超える連続負荷試験は本項の短時間確認に含めず、soakとして扱う。必須の実機環境が利用できない場合は当該artifact gate未完了とする。
+   別OS/ABIで代用したり、agent判断で免除したりしない。Linux musl aarch64も含めmatrixの全配布targetに適用する。
+4. B-CASカード抜去/再挿入と物理USB detach/reconnectは人手で実施する。各物理操作を要求する直前にHAOS側でCodexは`beep`、
+   Claude Codeは`vibe`を実行し、操作要求から完了まで最大5分待つ。この5分は各物理操作への応答待ち上限であり、必須確認
+   一連の所要時間は制限しない。5分以内に操作が行われない場合、その操作および当該artifact gateは未完了とする。
+   カード抜去中は`NO_CARD`（exit 9）、挿入後はATR取得・reset・反復APDUの成功を確認する。
+   USB再列挙・復旧も確認する。新しいhardware claimに必要な抜差しはSPEC 10.3に従い別途実施する。
 5. release recordは各claimについて10.2.8のbaseline evidence、baseline以後の累積変更、impact判定、evidenceの継承または
    失効理由、今回のfresh testを記録する。exact-current-artifactで未試験のclaimは、その事実を明記する。未観測の
    model × runtime/access path × feature/pathをhardware-verifiedと表示しない。
-6. 10.5.1の変更分類とtriggerに従いtargeted requalificationおよびlong soakを完了する。該当triggerがないreleaseは
-   fresh long soakを要求しない。receiver 7のfresh比較条件は10.2.6aに従う。
+6. 安定性に影響し得る変更がある場合、agentは差分、影響経路、対象となり得るOS/artifact/profile、過去記録と今回の
+   短時間結果をまとめてユーザーへ提示する。soakを行うか、10分/30分/2時間のどれにするか、対象OSは何かをユーザーが
+   決める。agentは選択を代行せず、ユーザー決定までsoakを開始しない。soakをしない選択も記録する。手順は
+   `docs/release-validation.md`に定める。receiver 7のfresh比較条件は10.2.6aに従う。
 7. crash、hang、use-after-free、stale lease、再接続不能、カード経路の重大な未解決issueがない。receiver 7の参照一致
    burstおよび代表負荷未検証のLNBは、この項の重大な未解決issueには含めない。
 8. 公開前レビューを実施し、README、LICENSE、THIRD_PARTY_NOTICES、provenance、checksum、support表示および
    release archiveの内容が一致している。
-9. Linux aarch64はnative CI build、offline test、musl/ELF/IFD/archive監査を満たしている。実機未検証は既知の
-   非ブロッカーとしてsupport表示とrelease notesに明記し、実機検証済みとは表現しない。
+9. Linux aarch64のglibc・musl各配布binaryは、native CI build、offline test、musl/ELF/IFD/archive監査に加え、
+   `docs/release-validation.md`の必須短時間matrixをそれぞれ実機で通過する。実機hostがない、または未通過なら該当artifact gateは未完了であり、
+   他のlibcやarchitectureの結果で代用しない。
 10. 手持ちにない機種は、READMEの対応機種一覧へ検証状況を明記した上でリリースできる。実機を試したテスタが現れたら、負担にならない範囲の検証（`scripts/w3u4-report.sh`相当の実機報告）を依頼し、その報告をもって`hardware-verified`へ更新する。報告がない間は検証済みと表現しない。
 11. Beta公開は対応機種の追加には使わない。Betaは機能追加や挙動変更など不安定な変更に限定し、機種追加は第10項の`hardware-unverified`表示を伴う通常リリースとして扱う。
 
@@ -1191,49 +1192,23 @@ path/featureを含む。表の列挙変更だけでなく、間接依存する�
 分類に当てはまらない変更、依存範囲が不明な変更、複数分類にまたがる変更はunknown/ambiguous impactとし、継承せず、
 影響し得る最小のpath集合をtargeted requalificationする。impact判定をrelease recordへ記録する。
 
-#### 10.5.2 Long soak triggers and single-OS selection
+#### 10.5.2 Soak: user decision
 
-long soakは毎releaseのgateではない。10.5.1の変更分類と依存関係により、stream/queue/demux/concurrency/
-lifetime/hotplug、card、power/LNB、USB transport、IPC lease/retuneの**長時間挙動へ影響し得るmodel/profile/
-topologyとruntime/access path**を特定し、その対象にだけ変更起因のsoakをtriggerする。変更したファイル名だけで
-全modelへ影響を拡張しない一方、共通実装や間接依存の影響を根拠なしに除外しない。影響がunknown/ambiguous
-なら該当し得るpathを対象に含める。docs、license、package metadataだけの変更では新たなsoakを要求しない。
-時間経過やrelease回数だけを理由にしたsoak triggerは設けない。
+Soakは5分を超える連続負荷試験であり、毎回のartifact別短時間実機確認とは別の手順である。変更内容から安定性への影響が
+あり得る場合、agentは10.5.1の分類を使ってコード差分、call path/platform guard、影響し得るmodel/profile/runtime/
+access path、過去の実機証拠、今回の短時間matrix結果と未確認点を説明する。これらはユーザーの判断材料であり、
+soakを自動開始するtriggerではない。
 
-Q3U4 topologyへ影響する変更でtriggerされたsoakは、代表Q3U4で2時間以上行い、ISDB-T/Sを含む8 receiver
-混在負荷、反復status/APDU、定期的なretune/stop/reopen、FD数とRSSの経時傾向、正常/異常cleanupを確認する。
-cycle構造は既存の300秒×24 cycleを用い、cycle境界でretuneまたはstop/reopenを行ってよい。Q3U4のTS条件は
-10.2のTS受入項目（5--8、13）および10.2.6aの受入基準を満たす。代表Q3U4を選べない場合、該当Q3U4
-hardware claimを更新しない。FD数とRSSは手順どおり記録し、数値の合否基準は設けない。記録系列が最終観測まで
-安定化しない持続的な増加を示し、外部要因も特定できない場合、そのsoakは`判定保留`としてpassにせず、release前に
-原因を調査する。途中で頭打ちになる増加は自動的な失敗ではなく、証拠と理由を記録する。このdispositionはsoakの受入規則で
-あり、新しいsoak triggerでも、triggerのない追加runを要求するものでもない。
+ユーザーだけが次を決定する: soakを行うか（行わない選択を含む）、時間を10分/30分/2時間のどれにするか、対象OSを何に
+するか。agentは時間・OSを独自に選択、既定、提案採用済み扱いしてはならず、明示的なユーザー決定があるまでsoakを
+開始しない。ユーザーが候補比較を求めた場合は影響範囲と各選択が確認する内容を提示し、決定を待つ。releaseあたりの
+最大OS数やcanonical順での自動選定は設けない。
 
-Q3U4へ影響しないと立証された追加profile固有の変更は、Q3U4代表2時間soakのtriggerにしない。ただし
-変更対象の各profileについて、exact candidateで10.2.7のcanonical Linux x86_64における30分以上の
-連続受信とprofile該当機能の受入条件を満たし、影響を受ける別runtime/access pathは10.5.1に従い
-targeted再検証する。このprofile認定をQ3U4の2時間混在負荷soakと同等の試験と表現しない。
-
-long soakを実施する場合、releaseあたり1つのruntime/access pathだけを選ぶ。対象は次の順で定める。
-まず変更が作用するpath-specificな環境に絞る。次に要求topologyを安全に実行できない環境を除く。残った中で
-`docs/release-validation.md`のcanonical環境順（E03、E01、E02、E04、E05、E06、E07）の先頭を選ぶ。選択しなかった
-影響環境は、その環境に該当する10分のtargeted確認だけを行い、release recordに
-「単一OS規則によりsoak非該当（選定=E-ID）」と理由を記録する。共通のT/S/cardを持つPX-M1URを
-single receiverの代表とし、S1UR固有コードの変更時はS1URも対象にする。受信・カード・給電を伴う
-canary、profile認定、soakは同一OS上で順に実行し、PX-M1URとPX-S1URを同時接続しない。
-v0.26のserial衝突に関するtargeted確認に限り、両機種を同時接続した状態でread-onlyの
-`px4d --list`/`--list-json`を実行してよい。環境が許す場合は同じexact candidateの
-`px4d --device SERIAL`が曖昧な候補を示してexit 2となり、USB interfaceのclaimとendpoint公開の前に
-失敗することも確認してよい。この同時接続状態で受信・カード・LNB給電・電源制御の試験を行わない。
-glibcとmuslの差は本節の短時間回帰で覆い、両libcをsoakしない。
-
-Q3U4と共通の実装ファイルを変更したがQ3U4は非影響と判定する場合は、release recordに差分、
-Q3U4の呼出経路、分岐・条件コンパイル等の適用条件、変更がその経路へ作用しない根拠を記録する。
-加えてexact candidateでSCS native/glibcとHAOS Alpine/musl add-onの各経路において、Q3U4の
-8 receiver ISDB-T/S混在受信を
-各10分以上、statusとcard APDUの併走、stop/reopen、TS/USB errorおよび終了後の残留確認を行う。
-この短時間回帰が未実施・失敗、または非影響の根拠が曖昧なら、Q3U4を影響対象として本節のQ3U4 2時間混在負荷soak
-を適用する。短時間回帰は影響除外の補助証拠であり、Q3U4へ影響する変更の2時間soakの代替ではない。
+ユーザーが実施を選んだ場合は、指定OS上で指定時間、対象profile/topologyに適用される10.2の受入項目を実行する。
+Q3U4を指定された場合は8 receiverのISDB-T/S混在、必要なstatus/APDU/retune/stop-reopen、TS/counter、終了cleanupを
+確認する。30分・2時間試験のFD数/RSSは傾向を記録し、固定数値閾値では判定しない。最終観測まで安定しない持続増加が
+外部要因で説明できない場合は`判定保留`とし、passにしない。profile認定、serial衝突、receiver 7比較等の個別受入条件は
+10.2.6a/10.2.7のまま維持し、毎回必須の短時間artifact matrixの代わりにはしない。
 
 ## 11. Implementation increments
 
