@@ -49,6 +49,51 @@ fi
 grep -F 'scripts/test-static-relink.sh --libusb-source-archive "$source_root/third_party/libusb-1.0.30.tar.bz2"' "$workflow" >/dev/null
 # shellcheck disable=SC2016
 grep -F 'PX4_LIBUSB_LIBRARY="$prefix/lib/libusb-1.0.a"' "$root/scripts/build-macos-static.sh" >/dev/null
+# The macOS libusb build must keep the Android reproducibility contract:
+# optimized PIC, no debug flag at any spelling, and prefix maps that hide the
+# randomized mktemp work tree.  Run the same helper the build uses.
+. "$root/scripts/libusb-reproducibility.sh"
+libusb_cflags=$(libusb_reproducible_cflags \
+    /tmp/px4-macos-static.cflags-check/libusb /tmp/px4-macos-static.cflags-check)
+case " $libusb_cflags " in
+*" -O2 "*) ;;
+*) printf '%s\n' 'macOS libusb CFLAGS must be optimized' >&2; exit 1 ;;
+esac
+case " $libusb_cflags " in
+*" -fPIC "*) ;;
+*) printf '%s\n' 'macOS libusb CFLAGS must build position-independent code' >&2; exit 1 ;;
+esac
+case " $libusb_cflags " in
+*" -fdebug-compilation-dir=. "*) ;;
+*) printf '%s\n' 'macOS libusb CFLAGS must pin the compilation directory' >&2; exit 1 ;;
+esac
+# shellcheck disable=SC2086
+for debug_flag in $libusb_cflags; do
+    case "$debug_flag" in
+    -g*)
+        printf '%s\n' "macOS libusb CFLAGS must not contain a debug flag: $debug_flag" >&2
+        exit 1
+        ;;
+    esac
+done
+for mapped in /tmp/px4-macos-static.cflags-check/libusb /tmp/px4-macos-static.cflags-check; do
+    for map_flag in -ffile-prefix-map -fdebug-prefix-map -fmacro-prefix-map; do
+        case " $libusb_cflags " in
+        *" $map_flag=$mapped=. "*) ;;
+        *)
+            printf '%s\n' "macOS libusb CFLAGS missing $map_flag=$mapped=." >&2
+            exit 1
+            ;;
+        esac
+    done
+done
+# The build must source the same helper and pass the flags to its configure step.
+# shellcheck disable=SC2016
+grep -F '. "$root/scripts/libusb-reproducibility.sh"' "$root/scripts/build-macos-static.sh" >/dev/null
+# shellcheck disable=SC2016
+grep -F 'libusb_cflags=$(libusb_reproducible_cflags "$work/libusb" "$work")' "$root/scripts/build-macos-static.sh" >/dev/null
+# shellcheck disable=SC2016
+grep -F 'CFLAGS="$libusb_cflags" ./configure' "$root/scripts/build-macos-static.sh" >/dev/null
 test "$(grep -c 'packaged-musl-' "$workflow")" -eq 2
 test "$(grep -c 'PX4_BUILD_TESTS=ON' "$workflow")" -ge 3
 test "$(grep -c 'ctest --test-dir' "$workflow")" -ge 3
@@ -128,7 +173,9 @@ if grep -F 'rm -rf' "$root/README.md" >/dev/null; then
     printf '%s\n' 'README private runtime cleanup must remain narrow' >&2
     exit 1
 fi
-grep -F 'px4-ts --device BASE_SERIAL --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group]' "$root/README.md" >/dev/null
+# Matches the current README synopsis, which now takes a device or an instance
+# token; the older --device-only form drifted from the documented interface.
+grep -F 'px4-ts (--device SERIAL | --instance TOKEN) --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]' "$root/README.md" >/dev/null
 grep -F '3つすべてに' "$root/README.md" >/dev/null
 grep -F '完全静的CLI + glibc/musl別IFD' "$root/README.md" >/dev/null
 test "$(grep -c 'name: Release candidate Linux x86_64 Ubuntu artifact smoke' "$workflow")" -eq 1

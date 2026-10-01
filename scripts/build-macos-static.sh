@@ -68,7 +68,13 @@ prefix=$build/libusb-static
 if [ -e "$prefix" ]; then find "$prefix" -depth -delete; fi
 mkdir -p "$work/libusb"
 [ -n "$source_dir" ] || tar -xjf "$archive" -C "$work/libusb" --strip-components=1
-(cd "$work/libusb" && ./configure --prefix="$prefix" --disable-shared --enable-static \
+# libusb is built outside CMake, so give its compiler the same reproducibility
+# contract as the Android libusb build (not a macOS project-build contract).
+# The mktemp work tree varies per run, so map it to "." instead of letting it
+# enter recorded file and debug paths.
+. "$root/scripts/libusb-reproducibility.sh"
+libusb_cflags=$(libusb_reproducible_cflags "$work/libusb" "$work")
+(cd "$work/libusb" && CFLAGS="$libusb_cflags" ./configure --prefix="$prefix" --disable-shared --enable-static \
     --disable-examples-build --disable-tests-build --disable-dependency-tracking &&
     make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" && make install)
 [ -f "$prefix/lib/libusb-1.0.a" ] || { printf '%s\n' 'static libusb was not built' >&2; exit 1; }

@@ -288,6 +288,23 @@ jobs:
           command -v otool
           command -v nm
           command -v strip
+      - name: Report macOS toolchain
+        run: |
+          echo "runner ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
+          sw_vers
+          xcode-select -p
+          xcodebuild -version
+          xcrun --show-sdk-version
+          clang --version
+          ld -v
+          cmake --version
+          ninja --version
+          brew list --versions ninja pcsc-lite pkgconf
+          libusb="$RUNNER_TEMP/libusb-1.0.30.tar.bz2"
+          curl -fsSL --retry 2 -o "$libusb" \
+            https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2
+          echo 'fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf  '"$libusb" | shasum -a 256 -c -
+          shasum -a 256 "$libusb"
       - name: Build with static libusb 1.0.30 and test
         run: |
           pcsc_prefix="$(brew --prefix pcsc-lite)"
@@ -295,7 +312,8 @@ jobs:
           PKG_CONFIG_PATH="$pcsc_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           export PKG_CONFIG_PATH
           pkg-config --modversion libpcsclite
-          scripts/build-macos-static.sh --build-dir build-userland --pcsc-include-dir "$pcsc_include" --tests
+          scripts/build-macos-static.sh --build-dir build-userland --pcsc-include-dir "$pcsc_include" --tests \
+            --libusb-source-archive "$RUNNER_TEMP/libusb-1.0.30.tar.bz2"
           test "$(sed -n 's/^PX4_PCSC_IFD_INCLUDE_DIR:PATH=//p' build-userland/CMakeCache.txt)" = "$pcsc_include"
           ctest --test-dir build-userland -R '^px4_ifd_(tests|symbols)$' --no-tests=error --output-on-failure
           ctest --test-dir build-userland --output-on-failure
