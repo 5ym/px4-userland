@@ -185,7 +185,7 @@ mkdir "$termux_pid_dir" "$callback_pid_dir"
 PATH="$fake_bin:$PATH" FAKE_PX4D_LOG="$log" FAKE_PX4D_PID="$pid_file" \
     FAKE_TERMUX_PID_DIR="$termux_pid_dir" FAKE_CALLBACK_PID_DIR="$callback_pid_dir" \
     sh "$launcher" --usb-device "$usb_one" --usb-device "$usb_two" \
-    --firmware "$firmware" --device serial\ with\ spaces \
+    --firmware "$firmware" --device serial\ with\ spaces --instance termux.one \
     --runtime-dir "$runtime" --group --allow-lnb-power
 assert_log_line '[--fd]' 'normal argument forwarding'
 assert_log_line '[7]' 'normal first fd forwarding'
@@ -193,6 +193,8 @@ assert_log_line '[8]' 'normal second fd forwarding'
 assert_log_line "[$firmware]" 'normal firmware forwarding'
 assert_log_line '[--device]' 'normal device option forwarding'
 assert_log_line '[serial with spaces]' 'normal device forwarding'
+assert_log_line '[--instance]' 'normal instance option forwarding'
+assert_log_line '[termux.one]' 'normal instance forwarding'
 assert_log_line "[$runtime]" 'normal runtime directory forwarding'
 assert_log_line '[--group]' 'normal group option forwarding'
 assert_log_line '[--allow-lnb-power]' 'normal LNB option forwarding'

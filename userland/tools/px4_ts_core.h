@@ -23,6 +23,7 @@ struct Px4TsArguments final {
     bool help = false;
     bool group = false;
     std::string device;
+    std::string instance;
     std::string runtime_directory;
     std::string output;
     std::uint8_t receiver = 0U;

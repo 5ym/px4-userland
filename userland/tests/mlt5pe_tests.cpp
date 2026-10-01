@@ -155,8 +155,12 @@ bool test_identity()
               Error::NOT_FOUND);
 
     const auto duplicate = group_q3u4_devices(std::vector<DeviceObservation>{dtv, dtv});
-    MLT_CHECK(duplicate && duplicate.value().groups.size() == 1U &&
-              duplicate.value().groups[0U].status == GroupStatus::duplicate);
+    // v0.26 keeps separate single-USB enclosures even when their serials match.
+    MLT_CHECK(duplicate && duplicate.value().groups.size() == 2U &&
+              duplicate.value().groups[0U].status == GroupStatus::ready &&
+              duplicate.value().groups[1U].status == GroupStatus::ready &&
+              select_ready_q3u4_group(duplicate.value(), dtv.serial).error() ==
+                  Error::INVALID_ARGUMENT);
     const auto alone = group_q3u4_devices(std::vector<DeviceObservation>{dtv});
     MLT_CHECK(alone && select_ready_q3u4_group(alone.value(), {}).value() == 0U);
     return true;

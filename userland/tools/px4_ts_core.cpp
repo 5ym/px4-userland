@@ -73,6 +73,20 @@ bool valid_serial(std::string_view value) noexcept
     return true;
 }
 
+bool valid_instance(std::string_view value) noexcept
+{
+    if (value.empty() || value.size() > 80U || value == "." || value == ".." ||
+        valid_serial(value))
+        return false;
+    for (const char c : value) {
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') || c == '_' || c == '-' || c == '.')
+            continue;
+        return false;
+    }
+    return true;
+}
+
 bool valid_frequency(System system, std::uint64_t frequency) noexcept
 {
     if (frequency > std::numeric_limits<std::uint32_t>::max()) return false;
@@ -82,7 +96,10 @@ bool valid_frequency(System system, std::uint64_t frequency) noexcept
 
 bool valid_arguments(const Px4TsArguments& arguments) noexcept
 {
-    if (!valid_serial(arguments.device) || arguments.frequency_khz == 0U ||
+    if ((arguments.instance.empty() ? !valid_serial(arguments.device) :
+                                      (!arguments.device.empty() ||
+                                       !valid_instance(arguments.instance))) ||
+        arguments.frequency_khz == 0U ||
         !valid_frequency(arguments.system, arguments.frequency_khz) ||
         arguments.tune_timeout_ms < 100U || arguments.tune_timeout_ms > 30000U ||
         (arguments.duration_set && arguments.duration_seconds == 0U) ||
@@ -113,6 +130,7 @@ Px4TsArguments parse_px4_ts_arguments(int argc,
         return invalid("invalid argument vector");
     Px4TsArguments result;
     bool have_device = false;
+    bool have_instance = false;
     bool have_runtime = false;
     bool have_receiver = false;
     bool have_system = false;
@@ -136,7 +154,8 @@ Px4TsArguments parse_px4_ts_arguments(int argc,
             result.group = true;
             continue;
         }
-        const bool takes_value = option == "--device" || option == "--runtime-dir" ||
+        const bool takes_value = option == "--device" || option == "--instance" ||
+                                 option == "--runtime-dir" ||
                                  option == "--output" || option == "--receiver" ||
                                  option == "--system" || option == "--frequency-khz" ||
                                  option == "--stream-id" || option == "--slot" ||
@@ -150,6 +169,10 @@ Px4TsArguments parse_px4_ts_arguments(int argc,
             if (have_device) return invalid("duplicate --device");
             have_device = true;
             result.device.assign(value.data(), value.size());
+        } else if (option == "--instance") {
+            if (have_instance) return invalid("duplicate --instance");
+            have_instance = true;
+            result.instance.assign(value.data(), value.size());
         } else if (option == "--runtime-dir") {
             if (have_runtime) return invalid("duplicate --runtime-dir");
             have_runtime = true;
@@ -201,7 +224,8 @@ Px4TsArguments parse_px4_ts_arguments(int argc,
             result.packet_count_set = true;
         }
     }
-    if (!have_device) return invalid("--device is required");
+    if (have_device == have_instance)
+        return invalid("exactly one of --device or --instance is required");
     if (!have_receiver) return invalid("--receiver is required");
     if (!have_system) return invalid("--system is required");
     if (!have_frequency) return invalid("--frequency-khz is required");
@@ -227,7 +251,7 @@ void print_px4_ts_usage(void* output) noexcept
     FILE* file = static_cast<FILE*>(output);
     if (file == nullptr) return;
     std::fprintf(file,
-                 "usage: px4-ts --device BASE_SERIAL --receiver 0..7 "
+                 "usage: px4-ts (--device BASE_SERIAL | --instance TOKEN) --receiver 0..7 "
                  "--system isdb-t|isdb-s --frequency-khz N [options]\n"
                  "  --stream-id N | --slot 0..11   (isdb-s, exactly one)\n"
                  "  --bandwidth-hz N               (isdb-t default 6000000)\n"
@@ -489,9 +513,11 @@ Result<Px4TsRunResult> Px4TsRunner::run(
                                         nullptr : arguments.runtime_directory.c_str();
     const EndpointAccess access = arguments.group ? EndpointAccess::shared_group :
                                                     EndpointAccess::private_user;
-    const EndpointConfig control_endpoint{runtime_directory, arguments.device.c_str(),
+    const char* instance = arguments.instance.empty() ? arguments.device.c_str() :
+                                                       arguments.instance.c_str();
+    const EndpointConfig control_endpoint{runtime_directory, instance,
                                           kControlEndpointName, access};
-    const EndpointConfig stream_endpoint{runtime_directory, arguments.device.c_str(),
+    const EndpointConfig stream_endpoint{runtime_directory, instance,
                                          kStreamEndpointName, access};
     auto control = PosixControlClient::connect(
         control_endpoint, kCapabilityStreamStats | kCapabilityEvents, Timeout{2000U});

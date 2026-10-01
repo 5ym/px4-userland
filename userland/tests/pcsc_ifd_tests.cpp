@@ -302,6 +302,19 @@ bool test_device_name_and_error_mapping()
         "px4-userland:device=00001205000960:access=group");
     CHECK(default_runtime && default_runtime.value().runtime_directory.empty() &&
           default_runtime.value().group_access);
+    const auto named = parse_ifd_device_name(
+        "px4-userland:runtime=/run/user/1000:instance=receiver.left:access=group");
+    CHECK(named && named.value().runtime_directory == "/run/user/1000" &&
+          named.value().device_instance == "receiver.left" && named.value().group_access);
+    CHECK(!parse_ifd_device_name(
+        "px4-userland:device=00001205000960:instance=receiver.left"));
+    CHECK(!parse_ifd_device_name("px4-userland:instance=."));
+    CHECK(!parse_ifd_device_name("px4-userland:instance=.."));
+    CHECK(!parse_ifd_device_name("px4-userland:instance=bad/path"));
+    CHECK(!parse_ifd_device_name("px4-userland:instance=bad:token"));
+    CHECK(!parse_ifd_device_name("px4-userland:instance=999999999999999"));
+    CHECK(!parse_ifd_device_name(
+        "px4-userland:instance=receiver.left:instance=receiver.right"));
     CHECK(!parse_ifd_device_name(nullptr));
     CHECK(!parse_ifd_device_name("px4-userland:runtime=relative:device=00001205000960"));
     CHECK(!parse_ifd_device_name(

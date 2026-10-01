@@ -1,9 +1,31 @@
 # px4-userland 仕様
 
-Status: Frozen v0.25 (2026-10-01)
+Status: Frozen v0.26 (2026-10-01)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+### v0.26 change record (2026-10-01)
+
+- PX-M1URとPX-S1URのUSB serialがともに`000000000000001`であることをLinuxとAndroidで観測した。
+  従来のserial単独groupingは異機種の観測を`duplicate`へ潰し、選択後もserialだけでUSB候補を再照合する。
+  4.1節を機種とserialと観測USB位置に基づく列挙へ改め、曖昧なserial指定はclaim前に失敗させる。
+  USB位置は現在の接続の選択子であり、抜き差し後の物理個体IDではない。Q3系の相方を位置の近さから推測しない。
+- 4.1・4.6節で`--usb-path`と独立したruntime`--instance`、`--list`の場所・LNB能力表示、単一文書の
+  `--list-json`を定める。既存のserial名socketは起動時に選んだUSBに結び付いた従来のendpointとし、
+  USBの増減に応じた動的な再解決は行わない。同serialでserial名socketと明示TOKENのsocketが
+  同時に存在しないよう、daemonのruntime名前空間を排他制御する。IPC wire形式とobserved serial値は変更しない。
+- 4.1・4.2・4.6節で`DeviceProfile.supports_lnb_15v`を機種の静的な対応能力として公開する。
+  single receiverの5機種はfalse、その他の11機種は仕様上trueとし、実機認定やdaemonのopt-inとは区別する。
+  既定0V・`--allow-lnb-power`・明示的な15V要求という安全境界は変更しない。
+- 5.2節でGPIO 11の初期化・確認と15V要求の許可を機種profileの能力で決める。GPIO 2/3/7の初期化順は
+  従来のboard layoutごとに維持する。現在の5つのsingle receiver profileはGPIO 11を操作しない。
+  single receiver frontendには15V給電経路がないため、将来そのprofileをtrueにする変更は当該経路を
+  実装するまで初期化前に`UNSUPPORTED`で拒否する。現行16機種の給電動作は変更しない。
+- 10.5.2節のPX-M1UR/PX-S1UR同時接続禁止を、受信・カード・給電を伴う認定とsoakへ明確化する。
+  両機種の同一serial衝突をexact candidateで確認するには同時接続が必要なため、read-onlyの
+  `--list`/`--list-json`と、実施可能な場合の曖昧serial指定のclaim前拒否だけを例外として許す。
+  これは同時運転や受信の認定ではなく、物理接続操作には従来どおり利用者の確認を要する。
 
 v0.25ではStable検証を変更影響による選択制へ統合する。6か月または6回目のStableによるQ3U4の周期再認定を削除し、
 long soakは変更・観測異常・未認定claimに基づくtriggerがある場合だけ行う。releaseごとのlong soakはQ3U4・追加profileを
@@ -311,6 +333,50 @@ v0.18の対応USB IDと筐体識別子は次のとおりとする。未掲載の
 - 単一USB機種は`dev_id 1`として扱い、物理カードスロットを1つ公開する。カードreader有無がupstreamで確認できない機種は
   card reader hardware-unverifiedとする。
 
+v0.26では、上記のserialは**観測された値**であり、全機種を通じて一意な筐体IDではない。
+上記の「runtime instance名は数字だけ」の規則を次のように改訂する。
+
+- groupingは機種とserialを併用する。単一USB機種は同機種・同serialの複数観測もそれぞれ1筐体として保持し、
+  USB位置で区別する。2 bridge機種は同機種・同base serialのdev 1とdev 2が各1件のときだけreadyにする。
+  片側欠落はincomplete、いずれかが複数ならduplicateとして全候補を診断に残す。位置の近さから相方を推測しない。
+- `px4d --device SERIAL`は従来どおり14桁または15桁の数字を受け付ける。native列挙で同じserialに
+  readyな筐体が複数あるか、該当するduplicate群がある場合は、任意の1台を選ばずclaim前にusage error
+  （exit 2）とし、候補の機種・bus・address・portと`--usb-path`指定をstderrへ示す。
+  対象が1筐体のときだけserial単独で開く。
+- native起動では`--device SERIAL`に加え`--usb-path PATH`を1回または2回指定できる。
+  `PATH`は現在のUSB接続を表す`BUS:ADDRESS`（各1..255）または`BUS-PORT[.PORT...]`
+  （BUSと各PORTは1..255、PORTは1..8要素）であり、後者は`--list`の`port`と同じ表記とする。
+  単一USB機種は1パス、2 bridge機種はdev 1/dev 2の2パスを要求する。serial・機種・bridgeの整合、
+  パスの一意性、観測した場所の存在をclaim前に検査する。一致しない、または場所が取得できない場合は失敗し、
+  未知の場所を推測で補わない。`--fd`と`--usb-path`は併用しない。FD経路は渡されたFD自体を選択子とする。
+- 選択したgroupと実際にopen/claimするUSB候補は同じ列挙オブジェクト、FD経路では同じFD indexで対応付ける。
+  serialだけで候補を再照合してはならない。2 bridgeの明示パスも、指定順ではなく観測されたdev 1/2に配置する。
+- runtime endpointの`instance`はobserved serialとは別の単一パス要素とする。`--usb-path`指定時は
+  `px4d --instance TOKEN`を必須とし、TOKENは1..80文字のASCII英数字・`_`・`-`・`.`だけを受理する
+  （`.`と`..`単体、および他機種のserialとの混同を避けるため14桁または15桁の数字列は不可）。
+  FD起動でも`--instance`を任意に指定できる。
+  省略時は従来どおりobserved serialを使う。既存socketに結び付いたUSBは後続のhotplugでも切り替えない。
+  同じTOKENの2 daemonは同じsocketを共有せず、後から起動した方がbusyで失敗する。
+  `px4ctl`・`px4-ts`の`--instance TOKEN`とPC/SCの`instance=TOKEN`は従来のserial指定と排他的な
+  endpoint指定とし、observed serialをIPC応答で保持する。クライアントのserial指定は既存socketへ接続する
+  互換経路であり、現在接続中のUSB全体を再列挙して一意性を判定するものではない。
+- 同じruntime rootとobserved serialを使うdaemon群は、endpoint公開前から終了後のsocket解放まで
+  serial名前空間の排他を保持する。serial名instanceは排他、明示TOKENのinstance同士は共有とし、
+  両modeが混在する起動は`BUSY`で拒否する。これにより、明示TOKENのdaemonが1台でも稼働中なら
+  新規のserial名socketは作られず、旧`--device SERIAL`クライアントが別の稼働中機器へ誤接続しない。
+  排他は同じruntime rootと同一UIDを使うv0.26以降のdaemon間で成立し、異なるroot・異なるUID・
+  旧版daemonとの混在は対象外とする。
+  ロックに使うruntime root内のファイルは通常終了後に最後の保持者が安全に削除する。
+  競合するopen済みinodeとpathnameの一致を検証し、unlink後の古いinodeへロックを得たプロセスは
+  再取得する。ロック取得失敗時にendpointを公開しない。
+- USB位置とTOKENは接続中の選択・接続先指定に使う。抜き差し・ポート交換後も同じ物理個体を追跡する保証はなく、
+  UUIDを自動発行しない。15V能力は機種profileの値であり、USB位置やTOKENから配線状態は推定しない。
+
+`DeviceProfile.supports_lnb_15v`は機種の**仕様上の15V対応能力**を表す真偽値とする。
+PX-M1UR、PX-S1UR、DTV03A-1TU、DTV02-1T1S-U、DTV02A-1T1S-Uはfalse、
+4.1表の他の11機種はtrueとする。falseのうちPX-M1URとDTV02の2機種はISDB-Sの0V受信に対応し、
+PX-S1URとDTV03A-1TUはISDB-T専用である。trueは実機検証済み、現在の給電許可、実際の出力電圧を意味しない。
+
 ### 4.2 Receiver numbering
 
 受信機番号は再接続後も次の順序を維持する。
@@ -451,6 +517,46 @@ slotとTSIDはIPC上で別fieldとし、値の大きさから暗黙判定しな�
 - Android（Termux/APK）のように、USBデバイスを通常列挙・openできずfdを受け取って起動する環境では、
   `--list`の結果を保証しない。
 
+v0.26では`--list`の既存行頭・既存項目・receiver行の並びを維持し、次の項目を末尾へ追加する。
+既存の`serial`は観測値であり、それだけで`--device`が成功することを保証しない。
+
+- 筐体行に`serial_unique=<true|false>`を加える。この値は列挙結果内でreadyかつ同じserialの群が
+  1つだけで、serialによって筐体を一意に選択できることを示す。runtimeのBUSYやUSB権限などによる
+  起動失敗は含めず、起動成功を保証しない。同じserialの群が状態を問わず複数ある場合、および
+  ready以外の群はfalseとする。
+  単一USB筐体とincomplete筐体も1行ずつ保持する。
+  ready/incomplete/invalid_observation群の各観測USBには`dev1_bus`・`dev1_address`・`dev1_port`
+  （2 bridgeでは`dev2_*`も）を加える。取得できない項目は省略する。duplicate群は全観測を失わず、
+  `candidate1_device`・`candidate1_bus`・`candidate1_address`・`candidate1_port`から始まる
+  `candidateN_*`を同じ筐体行に追加する。`device`はbridgeのdev_idとする。
+- receiver行に`lnb_15v_supported=<true|false>`を加える。ISDB-Sを受信でき、かつ機種の
+  `DeviceProfile.supports_lnb_15v`がtrueのreceiverだけtrueとする。ISDB-T専用receiverはfalse。
+  この値はdaemonの`--allow-lnb-power`や実機検証状態を表さない。
+- rejected行には観測できた`bus`・`address`・`port`を末尾へ加える。既存の`rejected`行頭と
+  `invalid_serial`/`open_failed`の理由は維持する。bus/addressは10進、portは`BUS-PORT[.PORT...]`とする。
+
+`px4d --list-json`は`--list`と排他的な独立オプションとし、他のオプションとの併用はusage error
+（exit 2）とする。同じdescriptor読み取りだけを行い、1行の整形しない単一JSON文書を改行1つ付きで出す。
+対象機器がなくても`{"enclosures":[],"ungrouped_usb_devices":[]}`を出す。列挙に失敗した場合は文書を
+出力せず、stderrと非ゼロ終了で伝える。stdout書込みに失敗した場合は部分出力があり得るが、
+stderrへ理由を出して非ゼロ終了する。
+
+- トップレベルは`enclosures`と`ungrouped_usb_devices`の2配列を持つobjectとする。
+- `enclosures[]`は`serial`、`model`、`usb`、`status`、`serial_unique`、`devices`、`candidates`、
+  `receivers`を持つ。`serial`/`model`/`usb`/`status`はテキストの筐体行と同じ文字列、
+  `serial_unique`はbooleanとする。`devices`は当該筐体に一意に割り当てた観測USBをdev_id順に載せる。
+  duplicate群では`devices`を空にし、全観測を`candidates`へ載せる。その他の群では`candidates`を空にする。
+- `devices[]`と`candidates[]`は`device`（1または2）、`serial`（USBの文字列）、`bus`、`address`、
+  `port`を持つ。取得できない位置はJSON nullとする。未接続のbridgeは要素を作らない。
+  `receivers[]`は4.2節の各receiverについて`receiver`、`device`、`local`（整数）、
+  `system`（`ISDB-T`/`ISDB-S`/`ISDB-T/S`）、`lnb_15v_supported`（boolean）を持つ。
+- `ungrouped_usb_devices[]`は筐体へ割り当てられない対象USBだけを載せ、`serial`、`model`、`usb`、
+  `status`、`bus`、`address`、`port`を持つ。`status`は`invalid_serial`または`open_failed`、
+  serialを読めないときはnull、位置が読めないときは各項目をnullとする。対象外USB IDは載せない。
+- JSON文字列は制御文字を正しくエスケープする。`schema_version`は置かない。消費側は未知の追加キーを無視し、
+  必須キーの削除・型変更・意味変更が必要なときは別のCLIオプションで新形式を定義する。
+  `serial_unique=false`や`status=duplicate`の要素について、serialだけを選択子として保存してはならない。
+
 ## 5. IC card reader contract
 
 ### 5.1 Ownership and public interface
@@ -508,14 +614,16 @@ Androidではsystem PC/SCを前提とせず、portable IPCを利用する。
 - M1UR/S1UR/ISDBT2071/ISDB2056/ISDB2056NはTC90522とR850/RT710を使うmodel-specific frontendを実装し、
   streamはtag demuxなしのsingle plain TSとして扱う。PX-M1UR/PX-S1URはcanonical Linux x86_64でprofile認定済み。
   その他の機種はprofile固有の実機初期化・tuning認定が完了するまでhardware-unverified。
-- single receiver全5機種ではLNB出力をサポートせず、参照`px4_drv`に合わせて初期化・受信・終了時に
-  GPIO 11を設定・読取り・駆動しない。T/S兼用のPX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-Uでは
+- GPIO 11の初期化・確認は`DeviceProfile.supports_lnb_15v=true`の機種だけで行う。15V要求は
+  daemonの明示的opt-inと当該profileのtrueの両方を必要とする。
+  現在のsingle receiver全5機種は4.1節の`supports_lnb_15v=false`であり、参照`px4_drv`に合わせて
+  初期化・受信・終了時にGPIO 11を設定・読取り・駆動しない。T/S兼用のPX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-Uでは
   0V要求のISDB-S受信を許可し、15V要求は`--allow-lnb-power`の有無にかかわらず、GPIO書込み前に
   `UNSUPPORTED`で拒否する。T専用のPX-S1UR/DTV03A-1TUではISDB-S要求自体を拒否する。
   USB給電という事実だけを15V出力不能の根拠とはしない。DTV02系の実機電圧は未測定である。
 - LNB 15V対応profileでは、通常の正常終了およびSIGINT、SIGTERM、SIGHUPの受信時、USB transportを閉じる前に
   各bridgeのLNBを0Vへ戻す。SIGKILL、host crash、USB stack failureではcleanupを保証できないため、
-  明示的なopt-inと再初期化時のGPIO 11 lowを安全境界とする。single receiver機種はこのGPIO cleanup規則の
+  明示的なopt-inと再初期化時のGPIO 11 lowを安全境界とする。現行の非対応5機種はこのGPIO cleanup規則の
   対象外で、安全境界は15V要求の無条件拒否とGPIO 11の不操作である。v0.1.7で15V要求を試した個体は、修正版で
   継続利用する前にUSBを物理的に抜き差しし、旧状態を持ち越さない。抜き差し前に給電状態の安全を推定しない。
 - `px4-termux`のstage 0は、通常終了時およびSIGINT、SIGTERM、SIGHUPの受信時に、固定40秒の猶予を設けて子プロセスグループの終了を待つ。
@@ -708,7 +816,7 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
 - Android NDK API 24でaarch64、armv7a、x86_64をクロスビルドし、3つのABIを同一の配布・監査対象とする。
 - ELF interpreterはBionic linker、libusbはstatic link、host RPATH/RUNPATHは空とする。
 - Termux試験では正式ランチャー `px4-termux` が `termux-usb` から開いた2つのfdを渡し、通常のCLI/IPC経路を使用する。
-- `px4-termux --usb-device PATH --usb-device PATH --firmware PATH [--device BASE_SERIAL] [--runtime-dir PATH] [--group] [--allow-lnb-power]`
+- `px4-termux --usb-device PATH --usb-device PATH --firmware PATH [--device BASE_SERIAL] [--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]`
   を提供する。利用者は異なる2つのデバイスパスを明示し、自動選択は行わない。ランチャーの実行時依存はTermux付属のsh、
   Termux:APIの `termux-usb`、およびtermux-apiパッケージの依存関係として提供される `util-linux` の `setsid` のみとし、
   Python、補助デーモン、eval、一時状態ファイルを要求しない。
@@ -1085,8 +1193,13 @@ long soakを実施する場合、releaseあたり1つのruntime/access pathだ�
 `docs/release-validation.md`のcanonical環境順（E03、E01、E02、E04、E05、E06、E07）の先頭を選ぶ。選択しなかった
 影響環境は、その環境に該当する10分のtargeted確認だけを行い、release recordに
 「単一OS規則によりsoak非該当（選定=E-ID）」と理由を記録する。共通のT/S/cardを持つPX-M1URを
-single receiverの代表とし、S1UR固有コードの変更時はS1URも対象にする。同一OS上で順に実行し、
-PX-M1URとPX-S1URを同時接続しない。glibcとmuslの差は本節の短時間回帰で覆い、両libcをsoakしない。
+single receiverの代表とし、S1UR固有コードの変更時はS1URも対象にする。受信・カード・給電を伴う
+canary、profile認定、soakは同一OS上で順に実行し、PX-M1URとPX-S1URを同時接続しない。
+v0.26のserial衝突に関するtargeted確認に限り、両機種を同時接続した状態でread-onlyの
+`px4d --list`/`--list-json`を実行してよい。環境が許す場合は同じexact candidateの
+`px4d --device SERIAL`が曖昧な候補を示してexit 2となり、USB interfaceのclaimとendpoint公開の前に
+失敗することも確認してよい。この同時接続状態で受信・カード・LNB給電・電源制御の試験を行わない。
+glibcとmuslの差は本節の短時間回帰で覆い、両libcをsoakしない。
 
 Q3U4と共通の実装ファイルを変更したがQ3U4は非影響と判定する場合は、release recordに差分、
 Q3U4の呼出経路、分岐・条件コンパイル等の適用条件、変更がその経路へ作用しない根拠を記録する。

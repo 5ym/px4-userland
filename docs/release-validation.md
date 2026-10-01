@@ -135,7 +135,7 @@ SPEC 10.5.2の「再現性確認」は具体的な受入条件が未定義であ
 2. canary は release ごとに1回、10分以上行う。実施環境は次の順で選ぶ。
    - 影響する release artifact がない場合（docs/license/package metadata のみ、または対象 artifact が baseline と byte-identical）: **E03** で PX-Q3U4 の8 receiver ISDB-T/S 混在 canary を行う。
    - 影響する artifact がある場合: 最も複雑な影響 topology（PX-Q3U4 > PX-M1UR > PX-S1UR）を選び、該当する OS/access path の環境に絞り、**E03、E01、E02、E04、E05、E06、E07** の順で最初のものを用いる。
-   - 単一 receiver の変更では PX-M1UR を代表とし、S1UR 固有コードの変更時だけ S1UR を加える。両者を同時接続しない。
+   - 単一 receiver の変更では PX-M1UR を代表とし、S1UR 固有コードの変更時だけ S1UR を加える。受信・カード・給電を伴う canary は両者を順次接続して行う。同時接続での識別確認は §4 の範囲に限る。
 3. 試験コマンドは §0.1 と README のCLI仕様に合わせる。選んだ profile に該当する `list/grouping`、ISDB-T/S または plain-TS、status、stop/reopen、搭載時の card/APDU、正常終了を確認する。10分の受信中は SPEC 10.2/10.2.7 の該当 TS条件を満たすことを確認し、packet・byte・counter・終了statusを保存する。profileにない機能や物理構成は試さず、非該当理由を記録する。
 4. 同一 lease retune は §0.2 に従い、IPC/lease/retune、frontend/tune、device identity の変更時にだけ canary へ含める。それ以外は offline CI（`userland/tests/tuner_service_tests.cpp`、`userland/tests/control_integration_tests.cpp`）の成功を release record に引用する。
 5. 終了後に daemon/client、FD、IPC socket/control endpoint等の残留がないことを確認する。旧candidateや異なるartifactでの結果を今回の canary に数えない。
@@ -174,7 +174,13 @@ FD数とRSSは手順どおり記録し、数値の合否基準は設けない。
 
 ### 単一receiver の30分認定
 
-Q3U4へ影響しない追加profile固有の変更では、変更対象の各profileについて exact candidate で SPEC 10.2.7 の canonical Linux x86_64 認定を行い、30分以上連続受信する。PX-M1UR は T/S と card を持つ代表、PX-S1UR は S1UR 固有コードの変更時に加える。同一OS上で順に実行し、両者を同時接続しない。
+Q3U4へ影響しない追加profile固有の変更では、変更対象の各profileについて exact candidate で SPEC 10.2.7 の canonical Linux x86_64 認定を行い、30分以上連続受信する。PX-M1UR は T/S と card を持つ代表、PX-S1UR は S1UR 固有コードの変更時に加える。受信・カード・給電を伴う認定は同一OS上で順に接続して行い、両者を同時接続しない。
+
+### PX-M1UR / PX-S1UR の同一serial確認
+
+v0.26 の識別変更が対象のとき、両機種を同時接続できる環境では、§2 の exact candidate を使って `px4d --list` と `px4d --list-json` を個別に実行し、同じ serial の2筐体が別機種・別USB位置として現れ、双方の `serial_unique` が `false` であることを記録する。通常列挙を許さない Termux では、このコマンドの成功を要求しない。
+
+実施可能なら、同じ状態で `px4d --device 000000000000001 --firmware "$FW" --runtime-dir "$RT"` の曖昧指定が候補と `--usb-path` を示して exit 2 となり、USB interface の claim と endpoint 公開の前に失敗することを確認する。stdout/stderr・終了コードとendpoint残存の有無を保存し、claim前拒否の根拠には模擬USB試験も対応付ける。この同時接続中は、受信・カード・LNB給電・電源制御の試験を行わない。物理USBの抜き差しは利用者の確認を得て行う。実施できない環境では未実施と理由を記録し、順次接続のcanaryや認定結果を同時接続時の識別結果へ流用しない。
 
 ### USB/cardの物理抜差し
 

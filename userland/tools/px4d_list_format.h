@@ -7,11 +7,12 @@
 
 namespace px4::userland::tools {
 
-// Formats `px4d --list` (SPEC 4.6).  For each enclosure of a supported model:
-// one "serial=... model=... usb=... status=... receivers=..." line followed by
-// the model's fixed receiver table in the `px4ctl list` receiver format.  Then
-// one "rejected ..." line per supported-model USB device that could not be
-// grouped.  USB devices of other models are not printed.
+// Formats `px4d --list` (SPEC 4.6).  Existing records and fields remain in
+// place; USB locations, serial uniqueness and receiver LNB capabilities are
+// appended.  USB devices of other models are not printed.
 std::string format_device_list(const GroupingResult& grouping);
+
+// Formats `px4d --list-json` as one compact JSON object followed by newline.
+std::string format_device_list_json(const GroupingResult& grouping);
 
 } // namespace px4::userland::tools

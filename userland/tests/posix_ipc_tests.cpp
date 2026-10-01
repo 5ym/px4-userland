@@ -15,6 +15,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <functional>
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
@@ -628,6 +629,11 @@ bool test_permissions_and_unsafe_paths()
                                    kControlEndpointName,
                                    EndpointAccess::private_user};
     CHECK(!SocketListener::listen(traversal));
+    const std::string too_long_instance(81U, 'x');
+    const EndpointConfig oversized{runtime.path().c_str(), too_long_instance.c_str(),
+                                    kControlEndpointName, EndpointAccess::private_user};
+    const auto oversized_listener = SocketListener::listen(oversized);
+    CHECK(!oversized_listener && oversized_listener.error() == Error::INVALID_ARGUMENT);
     return true;
 }
 
@@ -746,6 +752,85 @@ bool test_argument_and_peer_failures()
     return true;
 }
 
+bool test_serial_endpoint_interlock_and_cleanup()
+{
+    TemporaryDirectory runtime(0700);
+    CHECK(runtime.valid());
+    constexpr const char* serial = "000000000000001";
+    const EndpointConfig legacy{runtime.path().c_str(), serial,
+                                kControlEndpointName, EndpointAccess::private_user};
+    const EndpointConfig custom_a{runtime.path().c_str(), "m1-at-port2",
+                                  kControlEndpointName, EndpointAccess::private_user};
+    const EndpointConfig custom_b{runtime.path().c_str(), "s1-at-port4",
+                                  kControlEndpointName, EndpointAccess::private_user};
+    const std::string lock_path = runtime.path() + "/.px4-userland-" + serial + ".lock";
+
+    auto serial_lease = SerialEndpointLease::acquire(legacy, serial);
+    CHECK(serial_lease && serial_lease.value().valid());
+    CHECK(permissions(lock_path) == 0600);
+    CHECK(SerialEndpointLease::acquire(custom_a, serial).error() == Error::BUSY);
+    auto legacy_listener = SocketListener::listen(legacy);
+    CHECK(legacy_listener);
+    legacy_listener.value().close();
+    serial_lease.value().close();
+    CHECK(!std::filesystem::exists(lock_path));
+
+    auto first = SerialEndpointLease::acquire(custom_a, serial);
+    auto second = SerialEndpointLease::acquire(custom_b, serial);
+    CHECK(first && second);
+    CHECK(SerialEndpointLease::acquire(legacy, serial).error() == Error::BUSY);
+    first.value().close();
+    CHECK(std::filesystem::exists(lock_path));
+    CHECK(SerialEndpointLease::acquire(legacy, serial).error() == Error::BUSY);
+    second.value().close();
+    CHECK(!std::filesystem::exists(lock_path));
+    CHECK(std::filesystem::is_empty(runtime.path()));
+    CHECK(::rmdir(runtime.path().c_str()) == 0);
+
+    TemporaryDirectory group_runtime(0750);
+    CHECK(group_runtime.valid());
+    const EndpointConfig group_endpoint{group_runtime.path().c_str(), "q3-port1",
+                                        kControlEndpointName, EndpointAccess::shared_group};
+    auto group_lease = SerialEndpointLease::acquire(group_endpoint, serial);
+    CHECK(group_lease && group_lease.value().valid());
+    group_lease.value().close();
+    CHECK(std::filesystem::is_empty(group_runtime.path()));
+
+    TemporaryDirectory racing_runtime(0700);
+    CHECK(racing_runtime.valid());
+    const EndpointConfig racing_legacy{racing_runtime.path().c_str(), serial,
+                                       kControlEndpointName, EndpointAccess::private_user};
+    const EndpointConfig racing_custom{racing_runtime.path().c_str(), "port-4",
+                                       kControlEndpointName, EndpointAccess::private_user};
+    std::atomic<int> started{0};
+    std::atomic<int> legacy_result{-1};
+    std::atomic<int> custom_result{-1};
+    std::atomic<bool> release{false};
+    const auto race = [&](const EndpointConfig& config, std::atomic<int>& outcome) {
+        started.fetch_add(1);
+        while (started.load() != 2) std::this_thread::yield();
+        auto lease = SerialEndpointLease::acquire(config, serial);
+        outcome.store(lease ? 1 : lease.error() == Error::BUSY ? 0 : -2);
+        while (!release.load()) std::this_thread::yield();
+    };
+    std::thread legacy_thread(race, std::cref(racing_legacy), std::ref(legacy_result));
+    std::thread custom_thread(race, std::cref(racing_custom), std::ref(custom_result));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while ((legacy_result.load() == -1 || custom_result.load() == -1) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    const bool one_winner =
+        (legacy_result.load() == 1 && custom_result.load() == 0) ||
+        (legacy_result.load() == 0 && custom_result.load() == 1);
+    release.store(true);
+    legacy_thread.join();
+    custom_thread.join();
+    CHECK(one_winner);
+    CHECK(std::filesystem::is_empty(racing_runtime.path()));
+    return true;
+}
+
 }  // namespace
 
 bool run_posix_ipc_tests()
@@ -757,5 +842,6 @@ bool run_posix_ipc_tests()
            test_partial_write_and_write_timeout() &&
            test_permissions_and_unsafe_paths() &&
            test_stale_active_and_cleanup_identity() &&
-           test_argument_and_peer_failures();
+           test_argument_and_peer_failures() &&
+           test_serial_endpoint_interlock_and_cleanup();
 }

@@ -558,23 +558,36 @@ public:
 
 bool test_it930x_q3u4_warm_initialization()
 {
-    MockTransport transport;
     constexpr std::array<std::uint8_t, 4U> loaded_version{0U, 0U, 2U, 1U};
     constexpr std::array<std::uint8_t, 1U> query{1U};
-    expect_command(transport, 0x22U, 0U, ByteView{query.data(), query.size()},
-                   ByteView{loaded_version.data(), loaded_version.size()});
-    expect_q3u4_warm_sequence(transport, 1U);
-    It930xController controller(transport, kFastPacing);
     const auto image = FirmwareTestAccess::make_image(ByteView{kSyntheticFirmwareImage.data(),
                                                                 kSyntheticFirmwareImage.size()});
-    const auto result = controller.initialize_q3u4(image);
-    CHECK(result && result.value().already_loaded &&
-          result.value().firmware_version == 0x00000201U && result.value().verified);
-    CHECK(transport.remaining_expectations() == 0U);
-    CHECK(transport.timeouts().size() == 154U);
-    for (const Timeout timeout : transport.timeouts()) {
-        CHECK(timeout.milliseconds == 3000U);
+    constexpr std::array<DeviceModel, 6U> q3_w3_models{{
+        DeviceModel::px_q3u4, DeviceModel::px_q3pe4, DeviceModel::px_q3pe5,
+        DeviceModel::px_w3u4, DeviceModel::px_w3pe4, DeviceModel::px_w3pe5}};
+    for (const DeviceModel model : q3_w3_models) {
+        CHECK(device_profile(model).supports_lnb_15v);
+        MockTransport transport;
+        expect_command(transport, 0x22U, 0U, ByteView{query.data(), query.size()},
+                       ByteView{loaded_version.data(), loaded_version.size()});
+        expect_q3u4_warm_sequence(transport, 1U);
+        It930xController controller(transport, kFastPacing);
+        const auto result = controller.initialize_q3u4(
+            image, InitializationPolicy::accept_cold_or_warm, model);
+        CHECK(result && result.value().already_loaded &&
+              result.value().firmware_version == 0x00000201U && result.value().verified);
+        CHECK(transport.remaining_expectations() == 0U);
+        CHECK(transport.timeouts().size() == 154U);
+        for (const Timeout timeout : transport.timeouts()) {
+            CHECK(timeout.milliseconds == 3000U);
+        }
     }
+    MockTransport wrong_layout_transport;
+    It930xController wrong_layout(wrong_layout_transport, kFastPacing);
+    const auto invalid_model = wrong_layout.initialize_q3u4(
+        image, InitializationPolicy::accept_cold_or_warm, DeviceModel::px_m1ur);
+    CHECK(!invalid_model && invalid_model.error() == Error::UNSUPPORTED);
+    CHECK(wrong_layout_transport.remaining_expectations() == 0U);
     return true;
 }
 
@@ -752,6 +765,7 @@ bool test_single_receiver_warm_initialization_skips_gpio11()
     const auto image = FirmwareTestAccess::make_image(
         ByteView{kSyntheticFirmwareImage.data(), kSyntheticFirmwareImage.size()});
     for (const DeviceModel model : single_receiver_models) {
+        CHECK(!device_profile(model).supports_lnb_15v);
         MockTransport transport;
         expect_command(transport, 0x22U, 0U, ByteView{query.data(), query.size()},
                        ByteView{loaded_version.data(), loaded_version.size()});
@@ -775,6 +789,7 @@ bool test_single_receiver_cold_initialization_skips_gpio11()
     const auto image = FirmwareTestAccess::make_image(
         ByteView{kSyntheticFirmwareImage.data(), kSyntheticFirmwareImage.size()});
     for (const DeviceModel model : single_receiver_models) {
+        CHECK(!device_profile(model).supports_lnb_15v);
         MockTransport transport;
         expect_single_receiver_cold_sequence(transport, model, 0U);
         It930xController controller(transport, kFastPacing);
@@ -1678,6 +1693,110 @@ bool test_identity_grouping_and_topology()
     CHECK(select_ready_q3u4_group(two_ready.value(), "00000000000020").value() == 1U);
     CHECK(select_ready_q3u4_group(two_ready.value(), "00000000000099").error() == Error::NOT_FOUND);
     CHECK(select_ready_q3u4_group(two_ready.value(), "bad").error() == Error::INVALID_ARGUMENT);
+    return true;
+}
+
+bool test_collision_grouping_and_usb_path_selection()
+{
+    const auto at = [](DeviceObservation value, std::uint8_t address,
+                       std::uint8_t port) {
+        value.location.has_bus = true;
+        value.location.has_address = true;
+        value.location.bus = 1U;
+        value.location.address = address;
+        value.location.port_count = 1U;
+        value.location.port_path[0U] = port;
+        return value;
+    };
+    DeviceObservation m1 = at(observation("00000000000010", 1U), 30U, 2U);
+    m1.product_id = kPxM1UrProductId;
+    m1.serial = "000000000000001";
+    DeviceObservation s1 = at(m1, 31U, 4U);
+    s1.product_id = kPxS1UrProductId;
+    const auto mixed = group_q3u4_devices({m1, s1});
+    CHECK(mixed && mixed.value().groups.size() == 2U);
+    CHECK(mixed.value().groups[0U].model != mixed.value().groups[1U].model);
+    CHECK(mixed.value().groups[0U].status == GroupStatus::ready &&
+          mixed.value().groups[1U].status == GroupStatus::ready);
+    CHECK(select_ready_q3u4_group(mixed.value(), m1.serial).error() ==
+          Error::INVALID_ARGUMENT);
+    const auto m1_by_port = select_q3u4_group_by_usb_paths(
+        mixed.value(), m1.serial, {"1-2"});
+    CHECK(m1_by_port && m1_by_port.value().candidate_indices[0U] == 0U);
+    const auto s1_by_address = select_q3u4_group_by_usb_paths(
+        mixed.value(), m1.serial, {"1:31"});
+    CHECK(s1_by_address && s1_by_address.value().candidate_indices[0U] == 1U);
+    CHECK(select_q3u4_group_by_usb_paths(mixed.value(), m1.serial, {"1:0"}).error() ==
+          Error::INVALID_ARGUMENT);
+    DeviceObservation unknown_bus = m1;
+    unknown_bus.location.bus = 0U;
+    const auto unknown_location = group_q3u4_devices({unknown_bus});
+    CHECK(unknown_location &&
+          select_q3u4_group_by_usb_paths(unknown_location.value(), m1.serial,
+                                         {"1-2"}).error() == Error::INVALID_ARGUMENT);
+    CHECK(select_q3u4_group_by_usb_paths(mixed.value(), m1.serial, {"1-2."}).error() ==
+          Error::INVALID_ARGUMENT);
+    CHECK(select_q3u4_group_by_usb_paths(mixed.value(), m1.serial,
+                                         {"1:30", "1:31"}).error() ==
+          Error::INVALID_ARGUMENT);
+
+    DeviceObservation m1_other = at(m1, 32U, 6U);
+    const auto same_model = group_q3u4_devices({m1, m1_other});
+    CHECK(same_model && same_model.value().groups.size() == 2U);
+    CHECK(select_ready_q3u4_group(same_model.value(), m1.serial).error() ==
+          Error::INVALID_ARGUMENT);
+    const auto second = select_q3u4_group_by_usb_paths(
+        same_model.value(), m1.serial, {"1-6"});
+    CHECK(second && second.value().candidate_indices[0U] == 1U);
+
+    const DeviceObservation q1a = at(observation("00000000000010", 1U), 20U, 1U);
+    const DeviceObservation q1b = at(observation("00000000000010", 1U), 21U, 3U);
+    const DeviceObservation q2a = at(observation("00000000000010", 2U), 22U, 2U);
+    const DeviceObservation q2b = at(observation("00000000000010", 2U), 23U, 4U);
+    const auto ambiguous = group_q3u4_devices({q1a, q2a, q1b, q2b});
+    CHECK(ambiguous && ambiguous.value().groups.size() == 1U &&
+          ambiguous.value().groups[0U].status == GroupStatus::duplicate &&
+          ambiguous.value().groups[0U].candidates.size() == 4U);
+    CHECK(select_ready_q3u4_group(ambiguous.value(), "00000000000010").error() ==
+          Error::INVALID_ARGUMENT);
+    const auto paired = select_q3u4_group_by_usb_paths(
+        ambiguous.value(), "00000000000010", {"1:23", "1-3"});
+    CHECK(paired && paired.value().candidate_indices[0U] == 2U &&
+          paired.value().candidate_indices[1U] == 3U);
+    CHECK(select_q3u4_group_by_usb_paths(ambiguous.value(), "00000000000010",
+                                         {"1:20", "1:21"}).error() ==
+          Error::INVALID_ARGUMENT);
+    CHECK(select_q3u4_group_by_usb_paths(ambiguous.value(), "00000000000010",
+                                         {"1:20"}).error() == Error::INVALID_ARGUMENT);
+    CHECK(valid_runtime_instance("m1.001_port2"));
+    CHECK(!valid_runtime_instance(".") && !valid_runtime_instance("..") &&
+          !valid_runtime_instance("bad/name") && !valid_runtime_instance(""));
+    return true;
+}
+
+bool test_lnb_15v_profile_capability_table()
+{
+    const std::array<std::pair<DeviceModel, bool>, 16U> expected{{
+        {DeviceModel::px_q3u4, true},
+        {DeviceModel::px_w3u4, true},
+        {DeviceModel::px_mlt5pe, true},
+        {DeviceModel::dtv02a_5ts_p, true},
+        {DeviceModel::px_w3pe4, true},
+        {DeviceModel::px_w3pe5, true},
+        {DeviceModel::px_q3pe4, true},
+        {DeviceModel::px_q3pe5, true},
+        {DeviceModel::px_mlt8pe3, true},
+        {DeviceModel::px_mlt8pe5, true},
+        {DeviceModel::dtv02a_4ts_p, true},
+        {DeviceModel::px_m1ur, false},
+        {DeviceModel::px_s1ur, false},
+        {DeviceModel::dtv03a_1tu, false},
+        {DeviceModel::dtv02_1t1s_u, false},
+        {DeviceModel::dtv02a_1t1s_u, false},
+    }};
+    for (const auto& entry : expected) {
+        CHECK(device_profile(entry.first).supports_lnb_15v == entry.second);
+    }
     return true;
 }
 
@@ -2912,6 +3031,84 @@ bool test_native_enumeration_reports_unopened_devices()
     return true;
 }
 
+bool test_runtime_native_collision_claims_only_selected_paths()
+{
+    FakeDevice first = fake_device("00000000000010", 1U);
+    first.observation.product_id = kPxM1UrProductId;
+    first.observation.serial = "000000000000001";
+    FakeDevice second = first;
+    auto locate = [](FakeDevice& device, std::uint8_t address,
+                     std::uint8_t port) {
+        device.observation.location.has_bus = true;
+        device.observation.location.has_address = true;
+        device.observation.location.bus = 1U;
+        device.observation.location.address = address;
+        device.observation.location.port_count = 1U;
+        device.observation.location.port_path[0U] = port;
+    };
+    locate(first, 30U, 2U);
+    locate(second, 31U, 4U);
+
+    std::vector<std::string> rejected_events;
+    auto ambiguous_api = std::unique_ptr<FakeApi>(new FakeApi);
+    ambiguous_api->devices = {&first, &second};
+    ambiguous_api->lifecycle_events = &rejected_events;
+    const auto ambiguous = RuntimeTestAccess::open_native(
+        std::move(ambiguous_api), first.observation.serial);
+    CHECK(!ambiguous && ambiguous.error() == Error::INVALID_ARGUMENT);
+    CHECK(std::find(rejected_events.begin(), rejected_events.end(), "claim") ==
+          rejected_events.end());
+
+    auto selected_api = std::unique_ptr<FakeApi>(new FakeApi);
+    FakeApi* raw = selected_api.get();
+    raw->devices = {&first, &second};
+    auto selected = RuntimeTestAccess::open_native(
+        std::move(selected_api), first.observation.serial, {"1-2"});
+    CHECK(selected && selected.value()->model() == DeviceModel::px_m1ur);
+    CHECK(raw->claim_devices.size() == 1U && raw->claim_devices[0U] == &first);
+    selected.value().reset();
+
+    FakeDevice other_model = second;
+    other_model.observation.product_id = kPxS1UrProductId;
+    auto mixed_api = std::unique_ptr<FakeApi>(new FakeApi);
+    FakeApi* mixed_raw = mixed_api.get();
+    mixed_raw->devices = {&first, &other_model};
+    auto mixed = RuntimeTestAccess::open_native(
+        std::move(mixed_api), first.observation.serial, {"1:31"});
+    CHECK(mixed && mixed.value()->model() == DeviceModel::px_s1ur);
+    CHECK(mixed_raw->claim_devices.size() == 1U &&
+          mixed_raw->claim_devices[0U] == &other_model);
+    mixed.value().reset();
+
+    FakeDevice q1a = fake_device("00000000000011", 1U);
+    FakeDevice q1b = q1a;
+    FakeDevice q2a = fake_device("00000000000011", 2U);
+    FakeDevice q2b = q2a;
+    locate(q1a, 20U, 1U);
+    locate(q1b, 21U, 3U);
+    locate(q2a, 22U, 2U);
+    locate(q2b, 23U, 4U);
+    std::vector<std::string> ambiguous_q3_events;
+    auto ambiguous_q3_api = std::unique_ptr<FakeApi>(new FakeApi);
+    ambiguous_q3_api->devices = {&q2b, &q1a, &q2a, &q1b};
+    ambiguous_q3_api->lifecycle_events = &ambiguous_q3_events;
+    const auto ambiguous_q3 = RuntimeTestAccess::open_native(
+        std::move(ambiguous_q3_api), "00000000000011");
+    CHECK(!ambiguous_q3 && ambiguous_q3.error() == Error::INVALID_ARGUMENT);
+    CHECK(std::find(ambiguous_q3_events.begin(), ambiguous_q3_events.end(), "claim") ==
+          ambiguous_q3_events.end());
+    auto paired_api = std::unique_ptr<FakeApi>(new FakeApi);
+    FakeApi* paired_raw = paired_api.get();
+    paired_raw->devices = {&q2b, &q1a, &q2a, &q1b};
+    auto paired = RuntimeTestAccess::open_native(
+        std::move(paired_api), "00000000000011", {"1:23", "1-3"});
+    CHECK(paired && paired_raw->claim_devices.size() == 2U);
+    CHECK(paired_raw->claim_devices[0U] == &q1b &&
+          paired_raw->claim_devices[1U] == &q2b);
+    paired.value().reset();
+    return true;
+}
+
 bool test_runtime_native_transaction_and_ownership()
 {
     std::vector<std::string> lifecycle;
@@ -3327,6 +3524,9 @@ int main(int argc, char** argv)
         {"mock_failures_and_bounds", test_mock_failures_and_bounds},
         {"error_and_serial_contract", test_error_and_serial_contract},
         {"identity_grouping_and_topology", test_identity_grouping_and_topology},
+        {"collision_grouping_and_usb_path_selection",
+         test_collision_grouping_and_usb_path_selection},
+        {"lnb_15v_profile_capability_table", test_lnb_15v_profile_capability_table},
         {"frontend_control_layer", run_frontend_tests},
         {"card_atr", run_card_tests},
         {"card_service", run_card_service_tests},
@@ -3366,6 +3566,8 @@ int main(int argc, char** argv)
         {"fd_enclosure_batch", test_fd_enclosure_batch},
         {"native_enumeration_reports_unopened_devices",
          test_native_enumeration_reports_unopened_devices},
+        {"runtime_native_collision_claims_only_selected_paths",
+         test_runtime_native_collision_claims_only_selected_paths},
         {"runtime_native_transaction_and_ownership", test_runtime_native_transaction_and_ownership},
         {"runtime_context_serialization", test_runtime_context_serialization},
         {"command_event_dispatch_does_not_starve_stream_replenishment",

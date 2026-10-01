@@ -33,6 +33,7 @@ struct Arguments final {
     bool help = false;
     bool group = false;
     std::string device;
+    std::string instance;
     std::string runtime_directory;
     Command command = Command::none;
     std::vector<std::uint8_t> apdu;
@@ -53,6 +54,20 @@ bool valid_serial(std::string_view value) noexcept
     if (value.size() != 14U && value.size() != 15U) return false;
     for (const char character : value) {
         if (character < '0' || character > '9') return false;
+    }
+    return true;
+}
+
+bool valid_instance(std::string_view value) noexcept
+{
+    if (value.empty() || value.size() > 80U || value == "." || value == ".." ||
+        valid_serial(value))
+        return false;
+    for (const char c : value) {
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') || c == '_' || c == '-' || c == '.')
+            continue;
+        return false;
     }
     return true;
 }
@@ -121,6 +136,7 @@ Arguments parse_arguments(int argc, const char* const* argv) noexcept
     if (argc < 1 || argv == nullptr) return invalid("invalid argument vector");
     Arguments result;
     bool have_device = false;
+    bool have_instance = false;
     bool have_runtime = false;
     bool have_command = false;
     bool have_repeat = false;
@@ -138,7 +154,8 @@ Arguments parse_arguments(int argc, const char* const* argv) noexcept
             result.group = true;
             continue;
         }
-        if (option == "--device" || option == "--runtime-dir" ||
+        if (option == "--device" || option == "--instance" ||
+            option == "--runtime-dir" ||
             option == "--repeat") {
             if (index + 1 >= argc || argv[index + 1] == nullptr) {
                 return invalid("option requires a value");
@@ -148,6 +165,10 @@ Arguments parse_arguments(int argc, const char* const* argv) noexcept
                 if (have_device) return invalid("duplicate --device");
                 have_device = true;
                 result.device = value;
+            } else if (option == "--instance") {
+                if (have_instance) return invalid("duplicate --instance");
+                have_instance = true;
+                result.instance = value;
             } else if (option == "--runtime-dir") {
                 if (have_runtime) return invalid("duplicate --runtime-dir");
                 have_runtime = true;
@@ -174,9 +195,12 @@ Arguments parse_arguments(int argc, const char* const* argv) noexcept
         }
         return invalid("unexpected argument");
     }
-    if (!have_device || !valid_serial(result.device)) {
+    if (have_device == have_instance)
+        return invalid("exactly one of --device or --instance is required");
+    if (have_device && !valid_serial(result.device))
         return invalid("--device requires a 14-digit base serial or 15-digit serial");
-    }
+    if (have_instance && !valid_instance(result.instance))
+        return invalid("--instance is invalid");
     if (have_runtime && result.runtime_directory.empty()) {
         return invalid("--runtime-dir must not be empty");
     }
@@ -191,7 +215,8 @@ Arguments parse_arguments(int argc, const char* const* argv) noexcept
 void usage(FILE* output) noexcept
 {
     std::fprintf(output,
-                 "usage: px4ctl --device BASE_SERIAL [--runtime-dir PATH] [--group] "
+                 "usage: px4ctl (--device BASE_SERIAL | --instance TOKEN) "
+                 "[--runtime-dir PATH] [--group] "
                  "COMMAND\n");
     std::fprintf(output,
                  "commands: list, status, card-status, card-atr, card-reset, "
@@ -306,8 +331,10 @@ int main(int argc, char** argv)
 
     const char* runtime_directory = arguments.runtime_directory.empty() ?
                                         nullptr : arguments.runtime_directory.c_str();
+    const char* instance = arguments.instance.empty() ? arguments.device.c_str() :
+                                                       arguments.instance.c_str();
     const EndpointConfig endpoint{
-        runtime_directory, arguments.device.c_str(), kControlEndpointName,
+        runtime_directory, instance, kControlEndpointName,
         arguments.group ? EndpointAccess::shared_group : EndpointAccess::private_user};
     auto client = PosixControlClient::connect(
         endpoint, kCapabilityCard, Timeout{2000U});

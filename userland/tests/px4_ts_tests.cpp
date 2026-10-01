@@ -856,6 +856,19 @@ bool test_argument_contract()
         {"px4-ts", "--device", "00001205000960", "--receiver", "0",
          "--system", "isdb-t", "--frequency-khz", "40000"});
     CHECK(default_timeout.valid && default_timeout.tune_timeout_ms == 10000U);
+    const Px4TsArguments named = parse(
+        {"px4-ts", "--instance", "receiver.left", "--receiver", "0",
+         "--system", "isdb-t", "--frequency-khz", "40000"});
+    CHECK(named.valid && named.instance == "receiver.left" && named.device.empty());
+    CHECK(!parse({"px4-ts", "--device", "00001205000960", "--instance",
+                  "receiver.left", "--receiver", "0", "--system", "isdb-t",
+                  "--frequency-khz", "40000"}).valid);
+    CHECK(!parse({"px4-ts", "--instance", "../bad", "--receiver", "0",
+                  "--system", "isdb-t", "--frequency-khz", "40000"}).valid);
+    CHECK(!parse({"px4-ts", "--instance", "..", "--receiver", "0",
+                  "--system", "isdb-t", "--frequency-khz", "40000"}).valid);
+    CHECK(!parse({"px4-ts", "--instance", "999999999999999", "--receiver", "0",
+                  "--system", "isdb-t", "--frequency-khz", "40000"}).valid);
     CHECK(parse({"px4-ts", "--device", "00001205000960", "--receiver", "7",
                  "--system", "isdb-s", "--frequency-khz", "146875", "--slot", "0"}).valid);
     CHECK(parse({"px4-ts", "--device", "00001205000960", "--receiver", "0",

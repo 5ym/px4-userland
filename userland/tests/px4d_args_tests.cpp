@@ -53,6 +53,7 @@ bool test_valid_modes()
     PX4D_CHECK(native.firmware == "firmware.bin" &&
                native.runtime_directory == "/tmp/px4d");
     PX4D_CHECK(native.file_descriptor_count == 0U);
+    PX4D_CHECK(native.usb_path_count == 0U && native.instance.empty());
     PX4D_CHECK(px4d_open_mode(native) == Px4dOpenMode::native);
 
     const Px4dArguments descriptors = parse(fd_arguments());
@@ -72,6 +73,19 @@ bool test_valid_modes()
     lnb.push_back("--allow-lnb-power");
     const Px4dArguments lnb_result = parse(lnb);
     PX4D_CHECK(lnb_result.valid && lnb_result.allow_lnb_power);
+
+    Arguments selected = native_arguments();
+    selected.insert(selected.end(), {"--usb-path", "1-2.3", "--usb-path", "2:42",
+                                     "--instance", "q3u4.left"});
+    const Px4dArguments selected_result = parse(selected);
+    PX4D_CHECK(selected_result.valid && selected_result.usb_path_count == 2U &&
+               selected_result.usb_paths[0U] == "1-2.3" &&
+               selected_result.usb_paths[1U] == "2:42" &&
+               selected_result.instance == "q3u4.left");
+
+    Arguments named_fd = fd_arguments();
+    named_fd.insert(named_fd.end(), {"--instance", "fd_device-1"});
+    PX4D_CHECK(parse(named_fd).valid);
 
     Arguments limits = fd_arguments();
     limits[2U] = "0";
@@ -161,6 +175,41 @@ bool test_device_and_general_rejections()
                          {"--allow-lnb-power", "--allow-lnb-power"});
     PX4D_CHECK(!parse(duplicate_lnb).valid);
 
+    Arguments path_without_instance = native_arguments();
+    path_without_instance.insert(path_without_instance.end(), {"--usb-path", "1-2"});
+    PX4D_CHECK(!parse(path_without_instance).valid);
+    Arguments fd_and_path = fd_arguments();
+    fd_and_path.insert(fd_and_path.end(), {"--usb-path", "1:2", "--instance", "fd"});
+    PX4D_CHECK(!parse(fd_and_path).valid);
+    for (const char* path : {"", "0:2", "1:0", "256:1", "1:", "1:2:3",
+                             "1-", "1-0", "1-256", "1-1.", "1-1..2",
+                             "1-1.2.3.4.5.6.7.8.9"}) {
+        Arguments invalid_path = native_arguments();
+        invalid_path.insert(invalid_path.end(), {"--usb-path", path,
+                                                 "--instance", "named"});
+        PX4D_CHECK(!parse(invalid_path).valid);
+    }
+    Arguments three_paths = native_arguments();
+    three_paths.insert(three_paths.end(), {"--usb-path", "1-1", "--usb-path",
+                                             "1-2", "--usb-path", "1-3",
+                                             "--instance", "named"});
+    PX4D_CHECK(!parse(three_paths).valid);
+    Arguments duplicate_path = native_arguments();
+    duplicate_path.insert(duplicate_path.end(), {"--usb-path", "1-1",
+                                                 "--usb-path", "1-1",
+                                                 "--instance", "named"});
+    PX4D_CHECK(!parse(duplicate_path).valid);
+    Arguments bad_instance = native_arguments();
+    bad_instance.insert(bad_instance.end(), {"--instance", "../bad"});
+    PX4D_CHECK(!parse(bad_instance).valid);
+    Arguments reserved_instance = native_arguments();
+    reserved_instance.insert(reserved_instance.end(), {"--instance", "999999999999999"});
+    PX4D_CHECK(!parse(reserved_instance).valid);
+    Arguments same_instance = native_arguments();
+    same_instance.insert(same_instance.end(), {"--usb-path", "1-2",
+                                               "--instance", "00001205000960"});
+    PX4D_CHECK(!parse(same_instance).valid);
+
     const Arguments help{"px4d", "--help"};
     const Px4dArguments help_result = parse(help);
     PX4D_CHECK(help_result.valid && help_result.help);
@@ -188,6 +237,14 @@ bool test_list_mode()
     PX4D_CHECK(!parse(combined).valid);
     PX4D_CHECK(!parse({"px4d", "--list", "--list"}).valid);
     PX4D_CHECK(!parse({"px4d", "--list", "--help"}).valid);
+    const Px4dArguments json = parse({"px4d", "--list-json"});
+    PX4D_CHECK(json.valid && json.list_json && !json.list && json.device.empty());
+    PX4D_CHECK(!parse({"px4d", "--list", "--list-json"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--list-json", "--list"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--list-json", "--list-json"}).valid);
+    combined = native_arguments();
+    combined.push_back("--list-json");
+    PX4D_CHECK(!parse(combined).valid);
     return true;
 }
 

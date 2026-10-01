@@ -47,6 +47,20 @@
 | DTV02A-4TS-P | `0511:0254`（Digibest ISDB6014-4TS） |
 | DTV03A-1TU（実験的。ロット 2021-11 以降） | `0511:0052`（Digibest ISDBT2071） |
 
+### LNB 15V 非対応機種
+
+| 機種 | 衛星放送 |
+|---|---|
+| PX-M1UR | ISDB-SをLNB 0Vで受信可能 |
+| DTV02-1T1S-U | ISDB-SをLNB 0Vで受信可能（機種profile未認定） |
+| DTV02A-1T1S-U | ISDB-SをLNB 0Vで受信可能（機種profile未認定） |
+| PX-S1UR | ISDB-T専用。ISDB-S非対応 |
+| DTV03A-1TU | ISDB-T専用。ISDB-S非対応（機種profile未認定） |
+
+上記5機種の`DeviceProfile.supports_lnb_15v`は`false`です。他の列挙対象機種は仕様上`true`ですが、
+実機未検証の機種について給電能力を実測済みと示すものではありません。対応機種でも既定は0Vであり、
+15Vの要求にはdaemonの`--allow-lnb-power`と受信時の`--lnb-voltage 15`の両方が必要です。
+
 ### 動作環境
 
 機能軸別の対応状況は下表のとおりです（SPEC 10.3 準拠）。
@@ -151,6 +165,8 @@ sudo tar -xzf px4-userland-<version>-linux-glibc-x86_64.tar.gz -C /opt/px4-userl
 - `@PX4_IFD_LIBRARY@`: Linux では `ifd/px4-userland-ifd.so`、macOS では `ifd/px4-userland-ifd.bundle` の絶対パス
 - `@PX4_ACCESS@`: `user`（px4d と pcscd を同じユーザーで動かす private mode）または `group`（pcscd のサービスユーザーと px4d が共有する group mode）
 
+`px4d --instance TOKEN`で起動した場合、生成した設定の`DEVICENAME`では`device=SERIAL`を`instance=TOKEN`に置き換えます。
+
 Linux の group mode 配置例（`<pcsc-reader-config-dir>` は利用する pcsc-lite パッケージの reader 設定 include ディレクトリに置き換えます）:
 
 ```sh
@@ -219,7 +235,7 @@ test "$ready" = 1 || { echo 'px4d did not become ready' >&2; exit 1; }
 
 ## CLI 仕様
 
-`px4d`、`px4-ts`、`px4ctl` は、同一ホスト内で同じランタイムルートディレクトリ（`--runtime-dir`、省略時の既定値は `$XDG_RUNTIME_DIR`）と筐体識別子（`--device`。PX-Q3U4 は 14 桁の base serial、DTV02A-5TS-P / PX-MLT5PE は 15 桁の USB シリアル）を用いてプロセス間通信（IPC）を行います。実際のエンドポイントは、ランタイムルート下の `px4-userland/<BASE_SERIAL>/` に作成されます。group mode endpointへ接続する場合は、3つすべてに `--group` を指定し、共有groupを実効primary groupまたは補助グループ（supplementary group）に含めます。
+`px4d`、`px4-ts`、`px4ctl` は、同一ホスト内で同じランタイムルートディレクトリ（`--runtime-dir`、省略時の既定値は `$XDG_RUNTIME_DIR`）とランタイム接続先名を用いてプロセス間通信（IPC）を行います。既定の接続先名は観測されたシリアル番号で、エンドポイントはランタイムルート下の `px4-userland/<SERIAL>/` に作成されます。シリアル衝突時は`px4d --instance TOKEN`とクライアントの`--instance TOKEN`で接続先名を明示できます。group mode endpointへ接続する場合は、3つすべてに `--group` を指定し、共有groupを実効primary groupまたは補助グループ（supplementary group）に含めます。
 
 ### 受信機（Receiver）番号の割り当て
 
@@ -292,6 +308,8 @@ chmod 700 "$runtime_dir"
 
 PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE では `--usb-device` を 1 回だけ指定し、`--device` には 15 桁の USB シリアルを指定します。M1UR/S1URはTermuxの3 architectureで一部の受信・カード経路を実機確認済みですが、hotplug等を含む機種profile認定は未完了です。
 
+同じシリアルの機器を複数のFD経路で同時起動する場合は、それぞれの`px4-termux`に異なる`--instance TOKEN`を指定し、クライアントにも対応するTOKENを渡します。Termuxの`--usb-device`は現在のUSBデバイスパスであり、物理個体を抜き差し後も追跡するIDではありません。
+
 - `px4-termux` はフォアグラウンドで動作します。
 - 停止する場合は `Ctrl+C` を入力するか、親プロセスへ `SIGINT`、`SIGTERM`、または `SIGHUP` を送信してください。通常の正常終了（graceful cleanup）では、シグナルが子プロセスグループへ伝達され、子プロセスの終了とソケットの削除が行われます。
 - `px4-termux` は子プロセスグループの終了を固定40秒間待ちます。猶予時間を超過して `SIGKILL` による強制終了へ移行した場合は標準エラー出力へ警告を出力し、graceful cleanup、LNB 0V、およびランタイムエンドポイントの削除を保証できません。
@@ -318,26 +336,34 @@ runtime_dir="$PREFIX/tmp/p4"
 対象筐体の USB デバイス（PX-Q3U4 は 2 系統、DTV02A-5TS-P / PX-MLT5PE は 1 系統）、全受信機、内蔵 IC カードリーダーを一括して所有・管理します。フォアグラウンドで動作します。
 
 ```sh
-px4d --device BASE_SERIAL --firmware PATH [--runtime-dir PATH] [--group] [--allow-lnb-power]
+px4d --device SERIAL --firmware PATH [--usb-path BUS:ADDRESS|BUS-PORT ...] [--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]
 px4d --list
+px4d --list-json
 ```
 
-- `--device BASE_SERIAL`: PX-Q3U4 の14桁base serial、またはsingle-device機種（PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE）の15桁USB serialを指定します。
+- `--device SERIAL`: 2 USB機種の14桁base serial、または単一USB機種の15桁USB serialを指定します。同じserialの候補が複数ある場合は任意の1台を選ばず、候補のUSB位置を表示して終了します。
+- `--usb-path BUS:ADDRESS|BUS-PORT`: 現在の接続位置を明示します。単一USB機種は1回、2 USB機種はdev 1/2の2回指定します。`BUS-PORT`は`1-7.4.1`のような表記です。指定時は`--instance TOKEN`も必須です。抜き差し後の物理個体を保証する識別子ではありません。
+- `--instance TOKEN`: ランタイムsocketの接続先名をシリアルから分けます。位置指定時は必須、FD起動でも指定可能です。同時利用するクライアントにも同じTOKENを指定してください。
+
+同じシリアルでシリアル名のデーモンとTOKEN名のデーモンは同時起動できず、後から起動した方が`BUSY`で失敗します。複数台を同時利用する場合は、先に起動したデーモンも停止してそれぞれ異なる`--instance TOKEN`で起動し直してください。旧クライアントの`--device SERIAL`は稼働中のシリアル名ソケットへ接続し、USBを再列挙して接続先を選び直す機能ではありません。
 - `--firmware PATH`: IT930x ファームウェアバイナリのパスを指定します（必須）。
 - `--runtime-dir PATH`: ランタイムルートディレクトリを指定します（省略時は `$XDG_RUNTIME_DIR`）。
-- `--allow-lnb-power`: LNB 15V 対応機種で、衛星放送受信時の給電を許可します（安全のための明示的 opt-in）。PX-M1UR、DTV02-1T1S-U、DTV02A-1T1S-U は対象外です。
+- `--allow-lnb-power`: LNB 15V 対応機種で、衛星放送受信時の給電を許可します（安全のための明示的 opt-in）。非対応の5機種は上の一覧を参照してください。
 - `--fd FD [--fd FD]`: Android 環境などで、ホスト側が開いた USB ファイルディスクリプタを直接渡して起動します。PX-Q3U4 は 2 つ、PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE は 1 つ指定します（この場合 `--device` は任意）。
-- `--list`: 接続中の対象筐体を列挙して終了します（単独で指定）。`--device` に渡す識別子、機種、状態、各受信機の放送方式を出力します。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。筐体にまとめられなかった対象機種の USB デバイスは `rejected` 行で理由付きで出ます（USB ノードを開く権限が無いと `status=open_failed`）。仕様は `SPEC.md` 4.6 節です。
+- `--list`: 接続中の対象筐体を列挙して終了します（単独で指定）。シリアル・機種・状態・USB位置・各受信機の放送方式とLNB 15V対応能力を表示します。`serial_unique=false`ならシリアル単独での選択はできません。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。筐体にまとめられなかった対象機種の USB デバイスは `rejected` 行で理由付きで出ます（USB ノードを開く権限が無いと `status=open_failed`）。仕様は `SPEC.md` 4.6 節です。
+- `--list-json`: 同じ情報を整形しない単一JSON文書で出します。`--list`とは排他です。場所が不明な項目は`null`になり、`ungrouped_usb_devices`には`invalid_serial`または`open_failed`のUSB観測を載せます。
+
+USB位置は書式を示す例です。
 
 ```text
 $ px4d --list
-serial=00001205000960 model=PX-Q3U4 usb=0511:084a status=ready receivers=8
-receiver=0 device=1 local=0 system=ISDB-S
-receiver=1 device=1 local=1 system=ISDB-S
-receiver=2 device=1 local=2 system=ISDB-T
+serial=00001205000960 model=PX-Q3U4 usb=0511:084a status=ready receivers=8 serial_unique=true dev1_bus=1 dev1_address=28 dev1_port=1-7.4.1 dev2_bus=1 dev2_address=29 dev2_port=1-7.4.2
+receiver=0 device=1 local=0 system=ISDB-S lnb_15v_supported=true
+receiver=1 device=1 local=1 system=ISDB-S lnb_15v_supported=true
+receiver=2 device=1 local=2 system=ISDB-T lnb_15v_supported=false
 ...
-serial=000020263901491 model=DTV02A-5TS-P usb=0511:924e status=ready receivers=5
-receiver=0 device=1 local=0 system=ISDB-T/S
+serial=000020263901491 model=DTV02A-5TS-P usb=0511:924e status=ready receivers=5 serial_unique=true dev1_bus=1 dev1_address=30 dev1_port=1-7.5
+receiver=0 device=1 local=0 system=ISDB-T/S lnb_15v_supported=true
 ...
 ```
 
@@ -348,10 +374,10 @@ receiver=0 device=1 local=0 system=ISDB-T/S
 `px4d` に接続し、指定した受信機から MPEG-TS ストリームを受信して標準出力またはファイルへ出力します。
 
 ```sh
-px4-ts --device BASE_SERIAL --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts (--device SERIAL | --instance TOKEN) --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
-- `--device BASE_SERIAL`: 対象デバイスの base serial（必須）。
+- `--device SERIAL` / `--instance TOKEN`: 対象デーモンの接続先をどちらか一方で指定します。位置指定で起動したデーモンには同じTOKENを指定してください。
 - `--receiver 0..7`: 利用する受信機番号（必須）。DTV02A-5TS-P / PX-MLT5PE は 0..4 です。
 - `--system isdb-t|isdb-s`: 放送方式（必須）。
 - `--frequency-khz N`: 受信周波数（kHz 単位、必須）。
@@ -389,7 +415,7 @@ px4-ts --device BASE_SERIAL --receiver 0..7 --system isdb-t|isdb-s --frequency-k
 デバイスの状態確認や内蔵 IC カードリーダーの操作を行います。
 
 ```sh
-px4ctl --device BASE_SERIAL [--runtime-dir PATH] [--group] <サブコマンド>
+px4ctl (--device SERIAL | --instance TOKEN) [--runtime-dir PATH] [--group] <サブコマンド>
 ```
 
 #### サブコマンド一覧

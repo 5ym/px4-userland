@@ -40,10 +40,12 @@ void usage() noexcept
     std::printf(
         "usage:\n"
         "  px4d --device BASE_SERIAL --firmware PATH "
+        "[--usb-path BUS:ADDRESS|BUS-PORT ...] [--instance TOKEN] "
         "[--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
         "  px4d --fd FD [--fd FD] [--device BASE_SERIAL] --firmware PATH "
-        "[--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
+        "[--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
         "  px4d --list\n"
+        "  px4d --list-json\n"
         "\n"
         "  BASE_SERIAL is the 14-digit serial base for paired devices or the\n"
         "  15-digit USB serial for single-device models.  Pass one --fd per\n"
@@ -51,6 +53,7 @@ void usage() noexcept
         "\n"
         "  --allow-lnb-power  permit explicit ISDB-S 15 V requests; default off\n"
         "  --list             print connected supported enclosures and exit;\n"
+        "  --list-json        print the same data as compact JSON and exit;\n"
         "                     read-only, needs neither firmware nor a daemon\n");
 }
 
@@ -81,14 +84,15 @@ int exit_status(Error error) noexcept
 // `px4d --list` (SPEC 4.6).  Native enumeration only reads descriptors and
 // the serial string; it never claims an interface, so it is safe while other
 // px4d instances own their enclosures.
-int list_devices() noexcept
+int list_devices(bool json) noexcept
 {
     const auto grouping = Q3U4Runtime::enumerate_native();
     if (!grouping) {
         std::fprintf(stderr, "enumeration failed: %s\n", error_string(grouping.error()));
         return exit_status(grouping.error());
     }
-    const std::string output = tools::format_device_list(grouping.value());
+    const std::string output = json ? tools::format_device_list_json(grouping.value())
+                                    : tools::format_device_list(grouping.value());
     if ((!output.empty() &&
          std::fwrite(output.data(), 1U, output.size(), stdout) != output.size()) ||
         std::fflush(stdout) != 0) {
@@ -134,9 +138,16 @@ int serve(const Px4dArguments& arguments, const std::string& base_serial,
 {
     const char* runtime_directory = arguments.runtime_directory.empty() ?
                                         nullptr : arguments.runtime_directory.c_str();
+    const char* instance = arguments.instance.empty() ? base_serial.c_str()
+                                                      : arguments.instance.c_str();
     const EndpointConfig endpoint{
-        runtime_directory, base_serial.c_str(), kControlEndpointName,
+        runtime_directory, instance, kControlEndpointName,
         arguments.group ? EndpointAccess::shared_group : EndpointAccess::private_user};
+    auto serial_lease = SerialEndpointLease::acquire(endpoint, base_serial);
+    if (!serial_lease) {
+        std::fprintf(stderr, "serial endpoint: %s\n", error_string(serial_lease.error()));
+        return exit_status(serial_lease.error());
+    }
     auto server = PosixControlServer::create(
         endpoint, card_service, tuner_service, base_serial, true, usb_present_mask,
         &stream, receiver_count, dual_system);
@@ -175,13 +186,15 @@ int run_q3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
 {
     It930xController dev1(runtime.dev1());
     It930xController dev2(runtime.dev2());
-    const auto initialized1 = dev1.initialize_q3u4(firmware);
+    const auto initialized1 = dev1.initialize_q3u4(
+        firmware, InitializationPolicy::accept_cold_or_warm, runtime.model());
     if (!initialized1) {
         std::fprintf(stderr, "device 1 initialize: %s\n",
                      error_string(initialized1.error()));
         return exit_status(initialized1.error());
     }
-    const auto initialized2 = dev2.initialize_q3u4(firmware);
+    const auto initialized2 = dev2.initialize_q3u4(
+        firmware, InitializationPolicy::accept_cold_or_warm, runtime.model());
     if (!initialized2) {
         std::fprintf(stderr, "device 2 initialize: %s\n",
                      error_string(initialized2.error()));
@@ -205,7 +218,8 @@ int run_q3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     It930xLnbPower dev1_lnb(dev1);
     It930xLnbPower dev2_lnb(dev2);
     Q3U4LnbPowerCoordinator lnb_power(
-        dev1_lnb, dev2_lnb, arguments.allow_lnb_power);
+        dev1_lnb, dev2_lnb,
+        arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     Q3U4FrontendTunerBackend tuner_backend(enclosure, lnb_power);
     PosixTunerNonceSource nonce_source;
     const auto stream = Q3U4StreamDataPlane::create(runtime.dev1(), runtime.dev2());
@@ -319,7 +333,8 @@ int run_w3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
              const FirmwareImage& firmware, const std::string& base_serial) noexcept
 {
     It930xController device(runtime.dev1());
-    const auto initialized = device.initialize_q3u4(firmware);
+    const auto initialized = device.initialize_q3u4(
+        firmware, InitializationPolicy::accept_cold_or_warm, runtime.model());
     if (!initialized) {
         std::fprintf(stderr, "device initialize: %s\n", error_string(initialized.error()));
         return exit_status(initialized.error());
@@ -338,7 +353,9 @@ int run_w3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     NativeCardProtocolSession protocol(card_session);
     CardService card_service(backend, protocol);
     It930xLnbPower lnb(device);
-    Q3U4LnbPowerCoordinator lnb_power(lnb, lnb, arguments.allow_lnb_power);
+    Q3U4LnbPowerCoordinator lnb_power(
+        lnb, lnb,
+        arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     W3U4TunerBackend tuner_backend(enclosure, lnb_power);
     PosixTunerNonceSource nonce_source;
     const auto stream = Q3U4StreamDataPlane::create_w3u4(runtime.dev1());
@@ -377,7 +394,8 @@ int run_mlt5pe(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     NativeCardProtocolSession protocol(card_session);
     CardService card_service(backend, protocol);
     It930xLnbPower lnb(device);
-    Mlt5PeLnbPowerCoordinator lnb_power(lnb, arguments.allow_lnb_power);
+    Mlt5PeLnbPowerCoordinator lnb_power(
+        lnb, arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     Mlt5PeTunerBackend tuner_backend(frontend, lnb_power, receiver_count,
                                      satellite_supported, runtime.model());
     PosixTunerNonceSource nonce_source;
@@ -438,7 +456,7 @@ int main(int argc, char** argv)
         usage();
         return 0;
     }
-    if (arguments.list) return list_devices();
+    if (arguments.list || arguments.list_json) return list_devices(arguments.list_json);
 
     FirmwareProvider firmware_provider(arguments.firmware);
     const auto firmware = firmware_provider.load();
@@ -459,10 +477,31 @@ int main(int argc, char** argv)
         // remain responsible for the originals.
         runtime = Q3U4Runtime::open_fds(file_descriptors, arguments.device);
     } else {
-        runtime = Q3U4Runtime::open_native(arguments.device);
+        const std::vector<std::string> usb_paths(
+            arguments.usb_paths.begin(),
+            arguments.usb_paths.begin() +
+                static_cast<std::ptrdiff_t>(arguments.usb_path_count));
+        runtime = Q3U4Runtime::open_native(arguments.device, usb_paths);
     }
     if (!runtime) {
         std::fprintf(stderr, "device open: %s\n", error_string(runtime.error()));
+        if (mode == Px4dOpenMode::native && arguments.usb_path_count == 0U &&
+            runtime.error() == Error::INVALID_ARGUMENT) {
+            const auto grouping = Q3U4Runtime::enumerate_native();
+            if (grouping) {
+                GroupingResult matches;
+                for (const Q3U4Group& group : grouping.value().groups) {
+                    if (group.base_serial == arguments.device) matches.groups.push_back(group);
+                }
+                if (!matches.groups.empty()) {
+                    const std::string candidates = tools::format_device_list(matches);
+                    std::fprintf(stderr,
+                                 "serial is not uniquely selectable; specify --usb-path "
+                                 "and --instance. Candidates:\n%s",
+                                 candidates.c_str());
+                }
+            }
+        }
         return exit_status(runtime.error());
     }
     const DeviceModel model = runtime.value()->model();
