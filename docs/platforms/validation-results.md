@@ -6,6 +6,51 @@
 
 Stable release の検証記録は本ファイルへ日付付きで追記する。新しい records directory や template framework、汎用スクリプトは作らない。release record には候補 version/commit/CI run、9 archive（8 binary + source）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、canary/soak の選定理由（環境ID E01–E17、固定順の位置、単一OS規則による非該当を含む）、各 test の環境ID・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
+## 2026-10-01 v0.1.9候補の同一serial列挙確認
+
+CI candidate commit `fab5491365eae35a5adc0ce818092384eb5b9647` / workflow run `36811522001` の Linux glibc x86_64 archive（SHA-256 `2627d8889143c22eb45fe8217b39d9123ea9a69b9c22192d8cafbd16c42cc775`）から展開した候補バイナリを、HAOS Studio Code ServerのDebian/glibc x86_64で実行した。2026-10-01 15:33 JST、M1UR (`0511:0854`)、S1UR (`0511:0855`)、Q3U4 (`0511:084a`の内部USB device 2台)を同時接続した状態で確認した。
+
+`px4d --list`と`px4d --list-json`はいずれも、serial `000000000000001`をPX-M1URとPX-S1URの別々のenclosureとして表示し、それぞれ`serial_unique=false`、USB port `1-2.1` / `1-2.2`を報告した。Q3U4はserial `00001205000960`の1 enclosure、8 receiver、2内部deviceとしてreadyだった。`px4d --device 000000000000001 --firmware /config/.tools/tv-tuner-setup/it930x-firmware.bin --runtime-dir <新規未作成path>`は両候補を表示して終了コード2となり、runtime pathは作成されなかった。曖昧なserialによる選択は拒否された。物理USB interface claimの直接計測はしていない。
+
+同日、Q3U4の物理USBケーブル1本を抜き挿しした後、同じ2つの内部USB deviceがport `1-2.3.1` / `1-2.3.2`に再列挙され、変わったUSB addressで候補`--list-json`がreadyを報告した。これは筐体1台の再接続であり、物理ケーブル2本を抜き挿しした試験ではない。
+
+## 2026-10-01 v0.1.9 Stable候補のリリース検証
+
+Candidateはversion `0.1.9`、source commit `fab5491365eae35a5adc0ce818092384eb5b9647`、GitHub Actions push run [`36811522001`](https://github.com/Khronos31/px4-userland/actions/runs/36811522001)（全job success）。最新Stable baselineは`v0.1.8`（tag target `817d9c6952d71b1c85c815e71c25f6170554da18`）。Candidate 9 archivesはworkflowのchecksum/auditを通過し、`sha256sum -c SHA256SUMS`でも9件すべてOK。対応するv0.1.8 release archiveとの比較では9件すべてbyte-differentだった。
+
+| Archive | v0.1.9 candidate SHA-256 | v0.1.8 SHA-256 | 判定 |
+|---|---|---|---|
+| linux-glibc-x86_64 | `2627d8889143c22eb45fe8217b39d9123ea9a69b9c22192d8cafbd16c42cc775` | `91fad293912c6d0575fb0ca0f6b91ae533fad8d32dd971796923a3e573d574ad` | byte-different |
+| linux-musl-x86_64 | `b769cd41fc2c8d02f21ff1681a91b52cc46f972f9d3a28de12e31a42e6fba644` | `468c4a91b22a5e34819661a3019d9090f6bd7b666c5576650312444634367525` | byte-different |
+| linux-glibc-aarch64 | `0ef13d373833cc93fec925f7992dc91c0b37c97d3856a45e6c845a3bd787ab0c` | `28006cdfa012c4470d008e1ab23c8ce9472d7d309db75ec9a5491cf8b3c5435b` | byte-different |
+| linux-musl-aarch64 | `f8a56d1532c255ec5cb73bc546e390432b2cbf86d842180eb910bb5d12e094bd` | `cd26e48d098bcb199a4d21bee54f7b604011dc5a55572b5ec33114b93d59aa96` | byte-different |
+| darwin-arm64 | `4a58f5fb914379059a11a789759a8609e5fef1ac9a1ed7174c5f5650bcda4b00` | `30fec12befc77c4cd98dbcddaf2090278b117ad1e0c9f00e32815f421f80737a` | byte-different |
+| android-aarch64 | `825dcbaaa41006f3e8fe2bc7bd5c4651a7e2fd38aee69b9abb3af656b7b4cb23` | `5bf8efdee0726feac83e8f50964c2b7fdc4ab1df7b5cfe71ab0d517d7d48cebf` | byte-different |
+| android-armv7a | `e487f5b4381274e42fa4476562e8068df9656dccf7f52bbba8b45eabad48f11c` | `5ad855fe06063eb1a54064fd33bea371f07af748bd52d1d0d4b304a1c2153282` | byte-different |
+| android-x86_64 | `f0d1bc0c519793aaff4783a19a91ed2f602a833c86792ee7bb840daf662a5660` | `ae20094b04861f9952044b43c6689a7489b110264f684c3c65b7ecfee31c3ecf` | byte-different |
+| source | `24687e111a6cd9f4c98506ae6b44a94037237e7fc0f94ed329578f9a70f0eb6f` | `a5ef8c885ca7d53d34fb6922ae8941daae781e52f9f18b7fd540fd5c7f1a33d6` | byte-different |
+
+Firmware SHA-256は`5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`。8つのbinary archive manifestは`source_ref=fab5491365eae35a5adc0ce818092384eb5b9647`、source archive manifestは同じ`repository_commit`を記録する。CIではUbuntu glibc x86_64の全CTestとlibusb compatibility tests、source archive build/audit、全platform build/package/audit、候補checksum assembly、およびLinux glibc/musl x86_64・aarch64の候補CLI/IFD smokeがsuccessした。
+
+### Claim別判定と実機結果
+
+| Claim / 機能 | 状態 | 根拠 |
+|---|---|---|
+| `--list` / `--list-json`でのenclosure、USB位置、receiver、LNB対応表示 | 今回再検証 | 上記同時接続実機出力。M1UR/S1UR serial衝突、Q3U4の2内部device grouping、receiverごとの`lnb_15v_supported`を確認。 |
+| M1UR/S1UR同一serialの曖昧な`--device`指定拒否 | 今回再検証 | 同時接続実機で終了コード2、2候補を表示、新規runtime pathなし。 |
+| PX-Q3U4 SCS native/glibc 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `2627d888...c42cc775`。E01、2026-10-01 06:11:46–06:24:43 UTC。`/config/.work/px4-userland/v0.1.9-candidate/scs-runner.sh`をlive/default modeで実行。8 receiver overlap 603秒、status 20/20、10回APDU batch 20/20、cycle2の8/8 stop/reopen clean、終了後process/runtime残留なし。receiver 0–6は全counter 0。RX7値は下記。実行ログ: `/config/.work/px4-userland/v0.1.9-candidate/q3u4-glibc-results/20261001061146/`. |
+| PX-Q3U4 HAOS Alpine/musl 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `b769cd41...e6fba644`。E02、2026-10-01 05:50:59–06:01:39 UTC。600秒、RX0–7すべてsync/TEI/continuity/queue/USB error 0、status 88/88、card/APDU/PC/SC成功、終了時residualなし。別10秒stop/reopen smokeで8/8 clean。candidate CLI hashesとmanifest source_refを検証し、試験後にadd-onを停止、試験optionsとstage済み候補archiveを開始前の値へ復元。実行ログ: `/addon_configs/local_userland_stable_alpine_test/results/20261001T055059Z/`および`20261001T060233Z/`. |
+| Q3U4 receiver 7既知burstと`px4_drv` reference comparison | 継承 | E01 receiver 7は7,815,396 packets、sync 0 / TEI 10,975 / continuity 715 / queue 0 / USB 0、`px4-ts` exit 8。これはcandidate userlandの測定値であり、新たな`px4_drv`比較結果ではない。既存SPECの同一個体`px4_drv` baseline（約11k TEI）を継承する理由は次項のQ3U4 call-path影響分析。 |
+| M1UR same-lease T/S retune | 今回再検証 | E01 native/glibc、2026-10-01 06:05:45 UTC。S1URを外した状態でT→S→T→S→Tの5 interval、全interval lock、packet/byte/counter一致、TS/USB error 0、clean releaseとdaemon exit 0。結果: `/config/.work/px4-userland/v0.1.9-candidate/m1ur-retune-results/20261001T060545Z/`. |
+| LNB 15V実給電 | 未認定（今回の追加主張なし） | 今回のQ3U4試験では15Vを有効にしていない。`--list`のprofile capability表示は確認したが、給電能力試験とは扱わない。 |
+| Android ad-hoc APK / Windows / FreeBSD | 対象外 | 現行SPECの製品範囲とrelease gateによる。 |
+
+### Q3U4影響範囲・soak判定
+
+Candidate差分をhunk単位で確認した。`identity.cpp`はQ3U4の15桁serial末尾1/2からbridge slotを得る規則を維持し、同一base serial・同一modelの2 bridge groupingも維持する。新しいcandidate indexは従来slot別exact-serial searchと同じobservationを指す。Q3U4のbase serialはsingle-device M1UR/S1URの15桁serialと異なり、このcandidateではuniqueである。`libusb_transport.cpp`の変更はnative/Fd acquisition時のdevice selection plumb-throughであり、通常serial指定の有効なQ3U4 pairでは従来と同じUSB handleを選択する。USB interface open/claim、endpoint transfer、TS capture、demux、queue/counter処理および`q3u4_stream.cpp`は変更されていない。`px4_ts_core.cpp`の変更はIPC endpoint instance key選択、`it930x.cpp`変更はsingle-receiver profileのGPIO条件であり、Q3U4の条件は従来どおり有効。
+
+このcall-path証拠とE01/E02のcandidate exact 10分回帰に基づき、Q3U4 receiver 7のcapture/transport pathは非影響と判定した。したがってSPEC 10.2.6aのfresh `px4_drv` comparison triggerおよびSPEC 10.5.2のQ3U4 2時間soak triggerは成立しない。今回のTEI 10,975 / continuity 715をfresh reference matchと表現しない。カーネルmoduleのload/unloadおよび追加の物理抜差しは行っていない。
+
 ## 2026-09-30 PX-M1UR / PX-S1UR 候補版のクロスプラットフォーム・アクセスパス実機試験
 
 CIの**push-run候補** `2f555ff0542c7a36fb2565b64ebc0703f44a0931`（firmware SHA-256: `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`）を用い、
