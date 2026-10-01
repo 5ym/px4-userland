@@ -12,7 +12,7 @@ CI candidate commit `fab5491365eae35a5adc0ce818092384eb5b9647` / workflow run `3
 
 `px4d --list`と`px4d --list-json`はいずれも、serial `000000000000001`をPX-M1URとPX-S1URの別々のenclosureとして表示し、それぞれ`serial_unique=false`、USB port `1-2.1` / `1-2.2`を報告した。Q3U4はserial `00001205000960`の1 enclosure、8 receiver、2内部deviceとしてreadyだった。`px4d --device 000000000000001 --firmware /config/.tools/tv-tuner-setup/it930x-firmware.bin --runtime-dir <新規未作成path>`は両候補を表示して終了コード2となり、runtime pathは作成されなかった。曖昧なserialによる選択は拒否された。物理USB interface claimの直接計測はしていない。
 
-同日、Q3U4の物理USBケーブル1本を抜き挿しした後、同じ2つの内部USB deviceがport `1-2.3.1` / `1-2.3.2`に再列挙され、変わったUSB addressで候補`--list-json`がreadyを報告した。これは筐体1台の再接続であり、物理ケーブル2本を抜き挿しした試験ではない。
+同日、Q3U4の物理USBケーブル1本を抜き挿しした後、同じ2つの内部USB deviceがport `1-2.3.1` / `1-2.3.2`に再列挙され、変わったUSB addressで候補`--list-json`がreadyを報告した。timestamp付きのlive `--list`では、この`1-2.3.1` / `1-2.3.2`は同日05:32:09Z（14:32 JST、`q3u4-glibc-results/20261001053209/`、dev1_address=41 / dev2_address=42）ですでに観測されており、上記15:33 JSTの同時接続列挙より前である。本項は15:33 JSTの列挙の後に再列挙したことを示すものではない。これは筐体1台の再接続であり、物理ケーブル2本を抜き挿しした試験ではない。
 
 ## 2026-10-01 v0.1.9 Stable候補のリリース検証
 
@@ -32,24 +32,74 @@ Candidateはversion `0.1.9`、source commit `fab5491365eae35a5adc0ce818092384eb5
 
 Firmware SHA-256は`5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`。8つのbinary archive manifestは`source_ref=fab5491365eae35a5adc0ce818092384eb5b9647`、source archive manifestは同じ`repository_commit`を記録する。CIではUbuntu glibc x86_64の全CTestとlibusb compatibility tests、source archive build/audit、全platform build/package/audit、候補checksum assembly、およびLinux glibc/musl x86_64・aarch64の候補CLI/IFD smokeがsuccessした。
 
+#### pre-followup archive / run 36826506813（docs commit `8596cb8`）のarchiveとpayload比較
+
+このfollow-up前のarchive/runは、実装commit `fab5491365eae35a5adc0ce818092384eb5b9647` に `docs/platforms/validation-results.md` だけを追加したcommit `8596cb8ee608aee23a50c4234a91a1dd93ccab7d`、およびそのworkflow run [`36826506813`](https://github.com/Khronos31/px4-userland/actions/runs/36826506813)。**これは本follow-upでREADMEを降格し本記録を追記する前の成果物であり、もはやplanned release sourceではない。** 外側`SHA256SUMS`のSHA-256は`cac67b8dbfed1a51af4d0eb9f1b0d8cb59f164ba634daab8e29ea8b97a94837e`（`sha256sum run-36826506813/SHA256SUMS`）。このrunが生成した9 archiveのSHA-256は次のとおり。
+
+| Archive | run 36826506813 SHA-256 |
+|---|---|
+| linux-glibc-x86_64 | `ea5c3259c5cf255543384d389c98a0113ff0bee94324f8a2e09ac09c6a3150c6` |
+| linux-musl-x86_64 | `2d329c5c71da644f279673300910a778a6c88eb55708b400c87d96dcaa8b4a79` |
+| linux-glibc-aarch64 | `7cdaab75e52573b906c42ec35f129cf217ace19b4f43bc1a25b22c9586bd345d` |
+| linux-musl-aarch64 | `65398881e96b66bc44a908a21b57931665d33f937dc896bb1331cf260ba2a8b2` |
+| darwin-arm64 | `5e98c4af8832cf0140f2808cdd80bcf8e01d2e17dad665840d7bf5af494d332c` |
+| android-aarch64 | `5795e99b4da1a9ad729a3e8f764886742916bfaf4454698125e64923b1a876cd` |
+| android-armv7a | `a4f2a4d620d7f47854d69fd5798f26b577c6bf26e42522e636e3127e21a544e7` |
+| android-x86_64 | `629a84001927ff81c0c0bf1ed90662b08398d06c5621cf0a45e5b7993bf57cc7` |
+| source | `5b8c8d30c64776c913d575cf81ac38c638f93b3d17c12f629f0579def51ff387` |
+
+run 36826506813の9 archiveをすべて展開し、run 36811522001と再帰比較した。7つのbinary archive（Linux glibc/musl x86_64・aarch64、Android 3 ABI）は全payloadがbyte-identicalで、差異は各`manifest.json`の`source_ref`と内側`SHA256SUMS`だけである。**実機試験で使ったLinux glibc/musl x86_64の`px4d`/`px4-ts`/`px4ctl`とIFDはrun 36826506813でもpayload-identical**（glibc `px4d` `8d87e93f1e04f60820fde2ee0adb69b3a9329436ecc20994f949e35519ab6cfd`、`px4-ts` `dfef3b536b12b4ba8add1ee3c7d0d1cdcd02f0252604ea3e5ce59255cdeb1c29`、`px4ctl` `fba496e187cb5c8a3589885614acfc268f27169c684a6d0ba643249e7a31fe7c`、IFD `acdaa868327b5cf4d3e8343d10412e6899ed8dfc46be164696b0181b740d65d5`。muslも同様）。source archiveは`repository/docs/platforms/validation-results.md`・`BUILD-RELINK.md`・`source-manifest.json`（記録するcommit/tree）と`SHA256SUMS`だけが異なる。
+
+darwin-arm64の`px4d`だけはバイナリ自体が異なる。`cmp -l`の差は48バイトで、先頭付近のMach-O `LC_UUID` 16バイト（1-based 1609–1624、`553c0ee3…` → `b22ec010…`）と、末尾のembedded code signature領域32バイト（1-based 595650–595681）である。`px4-ts`/`px4ctl`はdarwinでもbyte-identical。darwin archiveの`evidence/binary-audit.json`も`px4d`のSHA-256を記録しているため、その該当1フィールド分だけ両runで異なる。このUUIDと署名領域はbuildごとに変わりうるため、darwin archiveのSHA-256は両runで異なる。独立したclean rebuildによる再生成比較は行っておらず、**byte-identicalとも再現性確認済みとも扱わない**。run 36811522001のdarwin archiveを実機試験に使っていないため、darwinの実機claimに与える影響はないが、run 36826506813の最終archiveそのものは未canaryである。
+
+run 36826506813の9 archiveはcommit `8596cb8`時点で生成されており、同梱の`README.md`は本follow-upのTermux×PX-Q3U4降格を含まない（降格前の`検証済み`行を保持する）。本記録の今回追記も`8596cb8`には含まれない。**公開archiveのREADME/support表示とrepoの表示を一致させる（SPEC 10.5-8）には、今回のdocs変更をcommitしたうえでrelease-candidate workflowを再実行し、9 SHA表とpayload比較を更新する必要がある。** 再実行するまでrun 36826506813のarchiveをplanned release sourceとして扱わない。
+
 ### Claim別判定と実機結果
 
 | Claim / 機能 | 状態 | 根拠 |
 |---|---|---|
 | `--list` / `--list-json`でのenclosure、USB位置、receiver、LNB対応表示 | 今回再検証 | 上記同時接続実機出力。M1UR/S1UR serial衝突、Q3U4の2内部device grouping、receiverごとの`lnb_15v_supported`を確認。 |
 | M1UR/S1UR同一serialの曖昧な`--device`指定拒否 | 今回再検証 | 同時接続実機で終了コード2、2候補を表示、新規runtime pathなし。 |
-| PX-Q3U4 SCS native/glibc 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `2627d888...c42cc775`。E01、2026-10-01 06:11:46–06:24:43 UTC。`/config/.work/px4-userland/v0.1.9-candidate/scs-runner.sh`をlive/default modeで実行。8 receiver overlap 603秒、status 20/20、10回APDU batch 20/20、cycle2の8/8 stop/reopen clean、終了後process/runtime残留なし。receiver 0–6は全counter 0。RX7値は下記。実行ログ: `/config/.work/px4-userland/v0.1.9-candidate/q3u4-glibc-results/20261001061146/`. |
+| PX-Q3U4 SCS native/glibc 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `2627d888...c42cc775`。E01、2026-10-01 06:11:46–06:24:43 UTC。`/config/.work/px4-userland/v0.1.9-candidate/scs-runner.sh`をlive/default modeで実行し、daemonは`px4d --device 00001205000960 --usb-path 1-2.3.1 --usb-path 1-2.3.2 --instance v019-q3u4-canary`で起動、`px4-ts`/`px4ctl`も`--instance`で接続した。8 receiver overlap 603秒、status snapshot 51回（cycle1）+1回（cycle2）すべてready/streaming、APDU batch 52件（cycle1 51+cycle2 1、各transmit-count=10）すべてSW 90:00、cycle2の8/8 stop/reopen clean、終了後process/runtime残留なし。receiver 0–6は全counter 0。RX7値は下記。実行ログ: `/config/.work/px4-userland/v0.1.9-candidate/q3u4-glibc-results/20261001061146/`. |
 | PX-Q3U4 HAOS Alpine/musl 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `b769cd41...e6fba644`。E02、2026-10-01 05:50:59–06:01:39 UTC。600秒、RX0–7すべてsync/TEI/continuity/queue/USB error 0、status 88/88、card/APDU/PC/SC成功、終了時residualなし。別10秒stop/reopen smokeで8/8 clean。candidate CLI hashesとmanifest source_refを検証し、試験後にadd-onを停止、試験optionsとstage済み候補archiveを開始前の値へ復元。実行ログ: `/addon_configs/local_userland_stable_alpine_test/results/20261001T055059Z/`および`20261001T060233Z/`. |
-| Q3U4 receiver 7既知burstと`px4_drv` reference comparison | 継承 | E01 receiver 7は7,815,396 packets、sync 0 / TEI 10,975 / continuity 715 / queue 0 / USB 0、`px4-ts` exit 8。これはcandidate userlandの測定値であり、新たな`px4_drv`比較結果ではない。既存SPECの同一個体`px4_drv` baseline（約11k TEI）を継承する理由は次項のQ3U4 call-path影響分析。 |
-| M1UR same-lease T/S retune | 今回再検証 | E01 native/glibc、2026-10-01 06:05:45 UTC。S1URを外した状態でT→S→T→S→Tの5 interval、全interval lock、packet/byte/counter一致、TS/USB error 0、clean releaseとdaemon exit 0。結果: `/config/.work/px4-userland/v0.1.9-candidate/m1ur-retune-results/20261001T060545Z/`. |
-| LNB 15V実給電 | 未認定（今回の追加主張なし） | 今回のQ3U4試験では15Vを有効にしていない。`--list`のprofile capability表示は確認したが、給電能力試験とは扱わない。 |
+| Q3U4 receiver 7既知burstと`px4_drv` reference comparison | 継承 | E01 receiver 7は7,815,396 packets、sync 0 / TEI 10,975 / continuity 715 / queue 0 / USB 0、`px4-ts` exit 8。これはcandidate userlandの測定値であり、新たな`px4_drv`比較結果ではない。既存SPECの同一個体`px4_drv` baseline（約11k TEI）を継承する理由は次項のQ3U4 call-path影響分析。**参照側のcontinuity値は保存記録に存在せず未測定**であり、continuity 715を参照結果との一致として扱わない。 |
+| M1UR same-lease T/S retune | 未認定 | 2026-10-01 06:05:45 UTC、S1URを外したPX-M1URでT→S→T→S→Tの5 intervalがlockし、`retune.log`でpacket/byte/counter一致・TS/USB error 0、`result.txt`でretune/daemon exit 0を記録した。ただし**使用したarchive/binaryのSHA-256とretune toolのsource/binary SHA-256・build条件は`m1ur-retune-results/20261001T060545Z/`に保存されていない**（`px4d.log`のendpoint名`v019-m1ur-retune`と`retune.log`のみ）。該当transcriptにもrun時のarchive/tool指定を直接示す記録は見当たらず、`/config/.work/px4-m1ur-s1ur/retune-tool/`の候補tool（source `d2dcc7ce…`、build `f36d3661…`、build-candidate `24f059f5…`）が本runで使われたことも一次証拠では結び付かない。SPEC 10.2.8のartifact軸を満たさないため未認定とし、provenanceが記録されるまで`今回再検証`にしない。 |
+| `--usb-path` + `--instance` の選択経路 | 未認定 | Q3U4 topologyでは、E01採用run（`20261001061146`）と失敗試行（`20261001053440`）が`scs-runner.sh`経由で`px4d --device 00001205000960 --usb-path 1-2.3.1 --usb-path 1-2.3.2 --instance v019-q3u4-canary`を起動し、両bridgeを指定位置でopen・claimして8 receiver受信（603秒+cycle2 45秒）を行い、`px4-ts`/`px4ctl`も`--instance`で接続した。したがって**Q3U4での`--usb-path`(×2)+`--instance`によるopen・claim・受信とclient`--instance`はexact candidateで実機確認済み**。未認定の範囲は、M1UR/S1UR重複時の`--usb-path`選択と同時運用、serial名/TOKEN名の名前空間排他（混在daemon）、PC/SC `instance=`、Termux `--instance`に限る（offline/CI試験のみ）。SPEC 10.4末段・10.5-5。 |
+| macOS arm64（E04）のPX-Q3U4 / PX-M1UR / PX-S1UR claim | 未認定 | 変更した共通file（`identity.cpp`、`libusb_transport.cpp`、`posix_ipc.cpp`、`pcsc_ifd_adapter.cpp`）はSPEC 10.5.1のUSB transport・platform adapter/IFD/PCSC・IPC lease・device identityの各分類に該当し、macOS pathへの非影響をhunk単位で示していない。特に新規`SerialEndpointLease`は全daemon起動時に無条件で走り、`pcsc_ifd_adapter.cpp`のIFD parserも`instance=`追加で変更されている。macOS CI（macos-14）のbuild/全CTest成功はSPEC 10.2.8の継承条件（対象artifactのbytes同一、または変更が対象pathへ非影響と10.5の表で判定可能）を満たさない。exact candidateのmacOS実機試験もないため、既存macOS hardware claimは失効し未認定。 |
+| Android Termux aarch64（E05）PX-Q3U4 claim | 未認定 | v0.1.9候補でlauncher `px4-termux`とFD経路（`acquire_fds`）が変更された。Bionic実行ファイルは今回CIでも一度も実行されておらず、exact candidateの実機試験がない。SPEC 10.5.1（platform adapter・launcher・FD handoffは独立判定）・10.5-6。 |
+| Android Termux armv7a（E06）PX-Q3U4 claim | 未認定 | E05と同じ理由。 |
+| Android Termux x86_64 / Bliss OS（E07）PX-Q3U4 claim | 未認定 | E05と同じ理由。 |
+| LNB 15V実給電 | 未認定 | 今回のE01/E02では15Vを有効にしていない。`--list`の`lnb_15v_supported`表示はprofile capabilityであり給電試験ではない。Q3U4のLNB経路はhunk分析で実効的に非影響と判定するが、実給電は今回未実施。SPEC 10.2-17の代表負荷時給電はStableのブロッカーではない。 |
 | Android ad-hoc APK / Windows / FreeBSD | 対象外 | 現行SPECの製品範囲とrelease gateによる。 |
+
+macOS arm64のevidence limit: exact candidate（`fab5491`）はmacOS実機で実行していない。macOS固有codeの変更はないが、変更した共通ファイルは共通実装のUSB transport・platform adapter/IFD/PCSC・IPC lease・device identityにまたがり、macOS pathへの非影響をhunk単位で示していない。新規`SerialEndpointLease`は全daemon起動時に無条件で実行され、`pcsc_ifd_adapter.cpp`は`instance=`追加で変更されている。macOS CI（macos-14）のbuildと全CTest（`posix_ipc_tests`、`pcsc_ifd_tests`を含む）の成功はofflineの回帰確認であって、SPEC 10.2.8のevidence inheritanceの条件（対象artifactのbytes同一、または変更が対象pathへ非影響と10.5.1の表で判定可能）を満たさない。したがって既存macOS hardware claimは未認定とし、E04でのtargeted確認まで検証済みと表示しない。
 
 ### Q3U4影響範囲・soak判定
 
 Candidate差分をhunk単位で確認した。`identity.cpp`はQ3U4の15桁serial末尾1/2からbridge slotを得る規則を維持し、同一base serial・同一modelの2 bridge groupingも維持する。新しいcandidate indexは従来slot別exact-serial searchと同じobservationを指す。Q3U4のbase serialはsingle-device M1UR/S1URの15桁serialと異なり、このcandidateではuniqueである。`libusb_transport.cpp`の変更はnative/Fd acquisition時のdevice selection plumb-throughであり、通常serial指定の有効なQ3U4 pairでは従来と同じUSB handleを選択する。USB interface open/claim、endpoint transfer、TS capture、demux、queue/counter処理および`q3u4_stream.cpp`は変更されていない。`px4_ts_core.cpp`の変更はIPC endpoint instance key選択、`it930x.cpp`変更はsingle-receiver profileのGPIO条件であり、Q3U4の条件は従来どおり有効。
 
-このcall-path証拠とE01/E02のcandidate exact 10分回帰に基づき、Q3U4 receiver 7のcapture/transport pathは非影響と判定した。したがってSPEC 10.2.6aのfresh `px4_drv` comparison triggerおよびSPEC 10.5.2のQ3U4 2時間soak triggerは成立しない。今回のTEI 10,975 / continuity 715をfresh reference matchと表現しない。カーネルmoduleのload/unloadおよび追加の物理抜差しは行っていない。
+このcall-path証拠とE01/E02のcandidate exact 10分回帰に基づき、Q3U4 receiver 7のcapture/transport pathは非影響と判定した。`it930x.cpp`のGPIO 11条件は`layout == single_receiver`から`!supports_lnb_15v`へ変わったが、Q3U4では`supports_lnb_15v=true`のため従来と同じくGPIO 11を設定・検証する。`px4d.cpp`のLNB許可値も`allow_lnb_power && supports_lnb_15v`となり、Q3U4では従来と同じ。したがってSPEC 10.2.6aのfresh `px4_drv` comparison triggerおよびSPEC 10.5.2のQ3U4 2時間soak triggerは成立しない。今回のTEI 10,975 / continuity 715をfresh reference matchと表現しない。**参照`px4_drv`側のcontinuity値は保存記録に存在せず未測定**であり、continuity 715は参照結果との一致を確認したものではない。カーネルmoduleのload/unloadおよび追加の物理抜差しは行っていない。
+
+### v0.1.9 exact-candidate hardware runとcanary選定理由
+
+今回のcandidate差分は`identity.cpp`、`libusb_transport.cpp`、`posix_ipc.cpp`、`pcsc_ifd_adapter.cpp`、`it930x.cpp`、`px4d.cpp`、`px4-ts`/`px4ctl`および`px4-termux`ランチャーに及ぶ共通実装の変更で、v0.1.8 release archiveに対して9 archiveすべてがbyte-differentである（SPEC 10.5-3の「影響するartifactがある」場合に該当）。
+
+exact candidateによる**Q3U4 8 receiver混在負荷run**は次の2件で、環境IDは`docs/release-validation.md` §0のcanonical IDである。この2件の他に、M1UR same-lease retune run（06:05:45 UTC、artifact provenance未保存）、失敗したlive試行`20261001053440`、15:33 JSTの同時接続`--list`/`--list-json`・曖昧拒否確認がある。
+
+| 環境ID | runtime/access path | host | device | archive SHA-256 | UTC | 内容 |
+|---|---|---|---|---|---|---|
+| E01 | HAOS x86_64 Debian/glibc SCS（container root） | Linux 6.18.52-haos x86_64 | PX-Q3U4 `00001205000960` | `2627d888...c42cc775`（linux-glibc-x86_64） | 2026-10-01 06:11:46–06:24:43 | `scs-runner.sh`が`px4d --usb-path 1-2.3.1 --usb-path 1-2.3.2 --instance v019-q3u4-canary`で起動。8 receiver T/S mixed load 603秒、status snapshot 51回（cycle1）+1回（cycle2）すべてready/streaming、APDU batch 52件（各transmit-count=10）すべてSW 90:00、cycle2 stop/reopen 8/8、終了後残留なし |
+| E02 | HAOS x86_64 Alpine/musl add-on（Supervisor） | Linux 6.18.52-haos x86_64（musl 1.2.5） | PX-Q3U4 `00001205000960` | `b769cd41...e6fba644`（linux-musl-x86_64） | 2026-10-01 05:50:59–06:01:39 | Q3U4 8 receiver T/S mixed load 600秒、RX0–7全error 0、status 88/88、card/PC/SC成功、終了後残留なし（daemonはserial指定、PC/SCも`device=`指定） |
+
+選定理由: candidateが共通実装を変更し影響artifactがあるため、SPEC 10.5-3と`docs/release-validation.md` §3.2は最も複雑なtopology（PX-Q3U4）を選び、該当OS/access pathをcanonical固定順E03、E01、E02、E04…の先頭で絞るよう定める。一方、§4は「共通実装を変更したがQ3U4非影響を立証」する場合に、exact candidateでSCS native/glibcとHAOS Alpine/muslの各pathのQ3U4 8 receiver ISDB-T/S混在受信を10分以上行うことを要求する。今回のE01/E02はこの短時間回帰を両Linux runtimeで満たしたものである。固定順先頭のE03（AnduinOS x86_64）でのcanary、およびSPEC 10.5-3が求める「公開するfinal candidate artifactそのもの」を使ったcanary（10.5-3のsame-lease retune、10.5-4のUSB detach/reconnectを含む）は**未完了**である。E01/E02をE03 canaryまたはfinal-candidate canaryの完了として扱わない。
+
+E01/E02の詳細はClaim別表の該当行と`/config/.work/px4-userland/v0.1.9-candidate/q3u4-glibc-results/20261001061146/`、`/addon_configs/local_userland_stable_alpine_test/results/20261001T055059Z/`・`20261001T060233Z/`に保存した。
+
+### 失敗したlive試行 20261001053440
+
+2026-10-01 05:34:40Z–05:47:36Zに`scs-runner.sh`をlive modeで実行した試行。runnerの最終判定は`failed`で、cycle1（`monitoring complete for cycle1: 601 s`）の後に`cycle cycle1 rx7: missing or non-positive packets`と`receiver 7 exited with code 8 (TS integrity)`を記録した。保存されているcycle1 summaryではreceiver 0–6はexit 0・全error counter 0、receiver 7は`packets=? bytes=? sync=? tei=? continuity=? queue=? usb=?`でcounterが欠落している。cycle2（45秒stop/reopen）は8 receiverすべてexit 0で、`px4-ts-rx7.log`に残るのは45秒・516,449 packets・error 0の1行だけである。**cycle1で欠落したreceiver 7のcounter値と、その欠落原因は保存logからは特定できず、推定で補わない。** この試行は失敗した実機試行として保持し、passへ書き換えない。
+
+この試行のcleanupでは、px4dへのSIGINT後にwait timeout、SIGKILL fallback、`runtime directory not empty after cleanup`を記録した。原因は切り分けていない。採用run（E01 `20261001061146`）とは別試行である。
 
 ## 2026-09-30 PX-M1UR / PX-S1UR 候補版のクロスプラットフォーム・アクセスパス実機試験
 

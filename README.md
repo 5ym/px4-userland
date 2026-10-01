@@ -73,10 +73,10 @@
 | Linux aarch64 | 全model/profile | 完了 | 未検証 | 未検証 | 未検証 | build-tested / hardware-unverified（すべて実機未検証） |
 | HAOS SCS Debian/glibc x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | 候補版で30分受信、PC/SC併走、機種該当のT/S、card/USB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。 |
 | HAOS Supervisor Alpine/musl x86_64 | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 未認定（一部PC/SC smoke） | 候補版でT/S該当系統、direct APDUとPC/SC reader smokeは成功。30分profile認定、card抜去/再挿入、反復PC/SC APDUと物理USB抜差しは未実施。 |
-| macOS arm64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | Apple Silicon（PC/SC IFD bundle含む） |
-| macOS arm64 | PX-M1UR | 完了 | 検証済み | 検証済み | 検証済み | 候補版でprofile該当系統、PC/SC、stop/reopen、cardおよびUSB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。 |
-| macOS arm64 | PX-S1UR | 完了 | 一部実機試験（未認定） | 検証済み | 検証済み | 候補版でISDB-T 30分、PC/SC、cardおよびUSB再接続後のdaemon再起動による復旧を確認。macOS上で同一daemonのstop/reopenは未実施。同一daemonの自動USB再接続も未確認。 |
-| Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 検証済み | 検証済み | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象） |
+| macOS arm64 | PX-Q3U4 | 完了 | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | Apple Silicon（PC/SC IFD bundle含む）。v0.1.9候補でserial endpoint leaseとIFD parserが変更されたが、macOS実機でのtargeted確認が未実施。 |
+| macOS arm64 | PX-M1UR | 完了 | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | v0.1.9候補でserial endpoint lease・device identityが変更されたが、macOS実機でのtargeted確認が未実施。 |
+| macOS arm64 | PX-S1UR | 完了 | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | 未認定（候補での実機未試験） | v0.1.9候補でserial endpoint lease・device identityが変更されたが、macOS実機でのtargeted確認が未実施。 |
+| Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 未認定（各ABIの候補実機未試験） | 未認定（各ABIの候補実機未試験） | 該当なし（N/A） | 静的CLI + `px4-termux`（native adapter非対象）。v0.1.9候補でlauncher/FD経路を変更したため、各ABIのexact candidate実機試験までは未認定。候補版の証拠は[検証結果](docs/platforms/validation-results.md)参照。 |
 | Android Termux（aarch64 / armv7a / x86_64） | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 該当なし（N/A） | 各architectureでT/S該当系統と受信中APDUを確認。card抜去/再挿入とUSB切断/再接続は未実施。APKは対象外。 |
 | Android ad-hoc APK | PX-Q3U4 | 対象外 | 対象外 | 対象外 | 該当なし（N/A） | dtv-android 所管。本リポジトリの配布物・release gate には含めません（過去の内部試験記録は検証結果参照） |
 | Windows | — | — | — | — | — | 非対応 / 対象外（out of scope） |
