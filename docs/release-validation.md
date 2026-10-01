@@ -112,7 +112,7 @@ Termuxのarchitecture、Termux launcherのFD path、glibc/musl、native PC/SC ad
 
 1. 候補 commit に対応する `portable userland foundation` workflow を確認する。path filter 等により自動実行されていなければ、GitHub Actions の `workflow_dispatch` でその候補 ref を指定して実行する。
 2. workflow 内の unit/offline test、各 target build、source/relink、`release-candidate` と、それに依存する4つの Ubuntu/Alpine × x86_64/aarch64 artifact smoke job がすべて成功していることを確認する。失敗 job を無視して先へ進まない。
-3. `release-candidate` artifact が候補 commit の `source_ref` を示し、8 binary archive、対応 source archive、外側 `SHA256SUMS` の計9 archiveを含むことを確認する。チェックサムを照合し、CIの manifest・license・corresponding-source・binary/source archive audit が通っていることを確認する。
+3. `release-candidate` artifact が候補 commit の `source_ref` を示し、8 binary archiveと対応 source archiveの計9 tar archive、およびその外側 `SHA256SUMS` を含むことを確認する。チェックサムを照合し、CIの manifest・license・corresponding-source・binary/source archive audit が通っていることを確認する。
 4. 候補 commit が変わった場合は、その commit の CI と artifact を取り直す。前の commit の archive、手元で別途作った build、PR run の古い artifactを final candidate の代用にしない。
 
 手動dispatchとartifact取得には次の短いCLI手順を使える。`<candidate-ref>`、`<run-id>`、`<new-empty-dir>`を実際の値へ置き換え、artifactは新しい空ディレクトリへ展開する。既に成功済みの自動runが候補commitと一致するなら再dispatchしない。
@@ -127,7 +127,33 @@ gh run download <run-id> --name release-candidate --dir <new-empty-dir>
 
 CI が行う build・audit・smoke を成功後に同じ目的でローカル再実行しない。CIで失敗または未実施の項目がある場合に限り、原因調査に必要な既存コマンドを実行する。新しい汎用検証スクリプトは作らない。
 
-SPEC 10.5.2の「再現性確認」は具体的な受入条件が未定義である。現行 workflow で確認できるのは候補のsource reference、manifest/checksum、archive audit、source/relink jobであり、最終9 archiveを独立したclean buildで再生成してbyte比較する試験ではない。この手順で全platformの独立再buildを追加要求しない一方、記録上もそれを実施済みと表現しない。SPECの再現性gateが独立再buildを意味する場合、対象範囲と判定条件をSPEC/CIへ定めるまで、その要件は未定義として扱う。
+SPEC 10.5-2の再現性確認は、final candidateと同一source commitに対する独立した2回のclean CI candidate runで、8 binary archive、corresponding-source archiveの9 tar archiveすべてのSHA-256が一致し、各archive本体がbyte-identicalであり、かつ外側`SHA256SUMS`自体もbyte-identicalであることによる。比較は、§2のCLI手順で候補commitの`release-candidate` runを2本分取得してから、次の手順で行う。
+
+1. 1本目のartifactを新しい空ディレクトリ`<run1-dir>`へ、2本目のartifactを別の新しい空ディレクトリ`<run2-dir>`へ展開する。既に成功済みの同一commit runを1本目に使ってよい。
+2. 各ディレクトリで`sha256sum -c SHA256SUMS`を実行し、9件すべてがOKであることを確認する。
+3. 両runの9 archiveを個別に`cmp`で比較し、外側`SHA256SUMS`も`cmp`で比較する。
+
+```sh
+RUN1_DIR="/path/to/run1-dir"  # 展開先の実際のpathに置き換える
+RUN2_DIR="/path/to/run2-dir"  # 展開先の実際のpathに置き換える
+(cd "$RUN1_DIR" && sha256sum -c SHA256SUMS)
+(cd "$RUN2_DIR" && sha256sum -c SHA256SUMS)
+for a in "$RUN1_DIR"/*.tar.gz; do cmp "$a" "$RUN2_DIR/${a##*/}"; done  # 9 archiveのbyte一致を期待
+cmp "$RUN1_DIR/SHA256SUMS" "$RUN2_DIR/SHA256SUMS"    # 一致を期待
+sha256sum "$RUN1_DIR/SHA256SUMS" "$RUN2_DIR/SHA256SUMS"
+```
+
+4. checksumが一致した場合も含め、常に両runのrunner image version/IDとtoolchain識別子（compiler/SDK/NDK等）、build inputを突き合わせる。入力の一致は、pinnedされた分は同一revision/digest、workflow上floatする分は両runの実効toolchain/build inputの観測値が一致することで判定する。runner metadata（label/OS image）とartifact生成toolを区別する。実効toolchain/build inputが異なる場合、または記録から同一と確認できない場合はinconclusiveであり、成功でも失敗でもない。同一inputのmatching pairを取り直して比較するまで成功としない。runner image versionが両runで異なっても、artifact生成に用いるtoolchain/build inputが同一と確認できれば一致として扱う。
+5. 両runのjob IDと結論を確認し、各artifact build jobのrunner image version/IDおよびtoolchain/build inputをCI logから記録する。`Set up job`内にrunner version・image label/versionが記録される。build jobのログでは、workflowのtoolchain inventory step、package managerの導入version、container digest、SDK/NDK versionなどを確認する。ログを次のように取得し、比較に使った原本を`$LOG`へ保存する。
+
+```sh
+gh run view <run-id> --json jobs --jq '.jobs[] | [.databaseId, .name, .conclusion] | @tsv'
+gh run view <run-id> --job <job-id> --log > "$LOG/run-<run-id>-job-<job-id>.log"
+```
+
+正規化（UUID・署名・timestampのマスク等）による合格は認めない。両runのrunner image version/ID、toolchain識別子、libusb source checksumをrelease recordに残す。
+
+比較のために常設の二重build jobや新しい検証スクリプトを追加しない。workflowの再実行はreleaseあたり1回でよい。
 
 ## 3. exact-candidate hardware canary（毎回）
 
@@ -209,7 +235,7 @@ release canaryでは、USB detach/reconnectはSPEC 10.5.1でそのpathへの影�
 - READMEの各support claimが実証または適格なbaseline継承に対応し、未試験のmodel × runtime/access path × featureを認定表示していない。
 - crash、hang、use-after-free、stale lease、再接続不能、カード経路の重大な未解決issueがない。
 - Linux aarch64などの既知の hardware-unverified は、その状態のままsupport表示と短いrelease noteに反映。
-- SPEC 10.5.2の再現性要件を、独立clean rebuildが未実施であることを隠してpass扱いしない。独立buildを求めるかどうかはSPEC/CIに受入条件を定義してから判断する。
+- SPEC 10.5-2の再現性確認（同一source commitの独立2 runによる9 archiveと外側`SHA256SUMS`のbyte一致）を、未実施のままpass扱いしない。toolchain/build inputが異なる比較はinconclusiveとして成功とせず、matching pairを取り直す。正規化比較による合格は認めない。
 - README、LICENSE、THIRD_PARTY_NOTICES、provenance、checksum、support表示、release archiveの内容が一致し、公開前レビュー済み。
 - 現行 inventory に無い機種は実機未検証としてREADMEに明示すればリリース可能。Betaを機種追加の代わりに使わない。
 

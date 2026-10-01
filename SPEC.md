@@ -1,9 +1,23 @@
 # px4-userland 仕様
 
-Status: Frozen v0.26 (2026-10-01)
+Status: Frozen v0.27 (2026-10-01)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+### v0.27 change record (2026-10-01)
+
+- 10.5-2節: 再現性確認の受入条件を、final candidateと同一source commitに対する独立した2回のclean CI
+  candidate run（別run・新規workspace）と、8 binary archive・corresponding-source archiveの9 tar archive
+  すべてのSHA-256一致とarchive本体のbyte-identical、および外側`SHA256SUMS`自体のbyte一致（`cmp`）と定める。入力一致は
+  pinned分を同一revision/digest、workflow上floatする分を両runの実効toolchain/build inputの観測値一致で
+  判定し、実効値が異なるか記録から同一と確認できない比較はinconclusiveとしてmatching pairを取り直す。
+  runner image version/IDとcompiler/SDK/NDK等のartifact生成toolchain識別子・build inputをrelease recordに
+  残し、runner metadata（label/OS image）とartifact生成toolを区別する。正規化（UUID・署名・timestampの
+  マスク等）による合格は認めない。
+- `docs/release-validation.md`§2・§5の再現性手順と判定を上記定義へ合わせ、10.5.2→10.5-2の引用誤りを直す。
+  これはdarwin-arm64 `px4d`のLC_UUID/署名領域がbuildごとに変わる非決定性を観測したためで、その修正commitに
+  対するexact same-commit 2 runの一致確認は`docs/platforms/validation-results.md`に記録する。
 
 ### v0.26 change record (2026-10-01)
 
@@ -1115,7 +1129,19 @@ Stable公開前に、次の条件をすべて満たすこと。
 
 1. 10.1のCI、静的監査、archive manifest、checksum、licenseおよびcorresponding-source監査が成功している。
 2. 最終candidateが使用した8 binary archive、corresponding-source archive、outer checksumについて、10.4の全
-   auditを完了し、再現性確認を成功させる。source commit、toolchain/build inputs、static/dynamic link inventory、relink結果、
+   auditを完了し、再現性確認を成功させる。再現性確認は、final candidateと同一source commitに対する独立した
+   2回のclean CI candidate run（別run・新規workspace）でrelease-candidate workflowを実行し、8 binary
+   archiveとcorresponding-source archiveの9 tar archiveすべてのSHA-256が両runで一致し、各archive本体が
+   byte-identicalであり、かつ
+   外側`SHA256SUMS`自体もbyte-identical（`cmp`）であることをもって成功とする。入力の一致は、pinnedされた
+   分は同一revision/digest、workflow上floatする分は両runの実効toolchain/build inputの観測値が一致する
+   ことで判定する。両runのrunner image version/ID、compiler/SDK/NDK等のartifact生成に用いるtoolchain
+   識別子とbuild inputをrelease recordに残し、runner metadata（label/OS image）とartifact生成toolを区別
+   する。実効toolchain/build inputが異なる場合、または記録から同一と確認できない場合は、その比較は
+   inconclusiveであり、成功でも失敗でもない。原因を切り分け、同一inputのmatching pairを取り直して比較する
+   まで成功としない。runner image versionが両runで異なっても、artifact生成に用いるtoolchain/build inputが
+   同一であることをrelease record上で確認できれば一致として扱う。正規化（UUID・署名・timestampのマスク等）
+   による合格は認めない。source commit、toolchain/build inputs、static/dynamic link inventory、relink結果、
    artifact checksum、licenseおよびsource提供条件をrelease recordに残す。
 3. 公開するfinal candidate artifactそのものを使ったhardware canaryを、releaseごとに1回、10分以上継続して行う。
    canaryを行う環境は`docs/release-validation.md`のcanonical環境ID E01–E17から次の順で選ぶ。影響するrelease

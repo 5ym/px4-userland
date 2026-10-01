@@ -6,6 +6,28 @@
 
 Stable release の検証記録は本ファイルへ日付付きで追記する。新しい records directory や template framework、汎用スクリプトは作らない。release record には候補 version/commit/CI run、9 archive（8 binary + source）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、canary/soak の選定理由（環境ID E01–E17、固定順の位置、単一OS規則による非該当を含む）、各 test の環境ID・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
+## 2026-10-01 v0.1.9 macOS再現性修正commitの独立2 run確認
+
+source commit `78e1c36513882fa39411476c278e009862f1ac52`（`fix: make macOS px4d reproducible`）に対し、`release-candidate` workflowを独立した2回のclean CI candidate runで実行し、macOS再現性修正後の9 archiveを照合した。1本目は同commitへのpush run [`36850114564`](https://github.com/Khronos31/px4-userland/actions/runs/36850114564)、2本目は同じcommitを指定した`workflow_dispatch` run [`36850599261`](https://github.com/Khronos31/px4-userland/actions/runs/36850599261)。GitHub Actions APIで両runの全jobがsuccessであることを確認した。このpairはSPEC v0.27制定前の実績であり、次のv0.1.9 candidate pairは改訂した10.5-2受入条件に従って確認する。
+
+両runの`release-candidate` artifactは、8 binary archiveとcorresponding-source archiveの9 tar archive、およびその外側`SHA256SUMS`を含む。各runを新しい空ディレクトリへ展開し、`sha256sum -c SHA256SUMS`で9件すべてOKを確認した。対応する9 archive本体を個別に`cmp`し、すべてbyte-identicalであることを確認した。両runの外側`SHA256SUMS`も`cmp`でbyte-identicalであり、そのSHA-256は`297b109ee800438dd2de2b9343323260404a92cc369f1b022ea0e1656ff808dc`である。正規化は行っていない。9 archiveの両run共通SHA-256は次のとおり。
+
+| Archive | 両run共通SHA-256 |
+|---|---|
+| linux-glibc-x86_64 | `41f1a7ad57f1edd2fec7d437f1103846809403519cff800885504e070cc5e554` |
+| linux-musl-x86_64 | `af42207b50fa90382e0a89ff069cc71fc54c67ff5000664ac501c893845ea39f` |
+| linux-glibc-aarch64 | `ab96b717e47e93b2aff1214a66cdce2a051f1e94f22664bce77e09ea9395f08b` |
+| linux-musl-aarch64 | `66a2ba5c8b86d01cd472ae5c3e3ee0c07b36e9ecc53fe8eaf12055b33413a628` |
+| darwin-arm64 | `f6c63c83eea983d9c3f84a2a2bc73739bb17abafd257680fbd2b09901005ad85` |
+| android-aarch64 | `b51ebcd611a68aeea2d9dbfd79999a6d601e9fb3b80c16453fc90ba9a50fd329` |
+| android-armv7a | `e8f6e61575965f36d31c66eb71b48a1021e12853c8687297ff4cdb98252e023f` |
+| android-x86_64 | `297e52f596c6b74d93909e647535dc0525ebd8e3a9b51478b7ab7cbb82381ec3` |
+| source | `a1d03e56214cb4493d44af18ce583af5d20d55b5866ca2c5f650c38cc1b86cc8` |
+
+same-input evidence: 両runは同一source commit `78e1c36`、commitで固定された同一workflow、pinned action SHA、pinned container digestを用いた。artifact build jobのrunner labelsは両runとも`ubuntu-24.04`、`ubuntu-24.04-arm`、`macos-14-arm64`、GitHub Actions runner versionは`2.337.0`。runner image versionはrunner metadataであり、artifact生成toolchainそのものではない。両runで観測されたrunner image versionの集合は、ubuntu image version `20260920.314.1`と`20260927.320.1`、hosted image version `20260828.587`と`20260901.588`、macOS image version `20260831.0302.1`。Android matrixのABIとrunner image versionの組（どのABI jobがどのimage versionで走ったか）は両run間で異なったが、観測されたversion集合自体は同一だった。linux x86_64/aarch64 jobのrunner labelsはそれぞれ`ubuntu-24.04` / `ubuntu-24.04-arm`、Alpine build container digestは両runとも`sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8`、glibc IFD用Debian container digestは`sha256:6f519a81440354a85eb592c5f32109ab80605f6b892455983a6f618bf87fabe9`で、Debian snapshotは`20260825T000000Z`。Android jobsは`ubuntu-24.04`上でpinned setup action `afb4c9964b521afb97c864b7d40b11e6911bd410`とNDK `r27d`を使用し、host toolとしてCMake `3.28.3-1build7`、Ninja `1.11.1-2`をaptから導入した。両runの3 ABI jobでこれらのversionが一致した。各runのGitHub Actionsログでこれらを確認した。両macOS jobのCI logで確認したbuild inputも完全に一致する。runnerは`macos-14` / image `20260831.0302.1`、macOS `14.8.9` build `23J631`、Xcode `15.4` build `15F31d` / SDK `14.5`、Apple clang `15.0.0 (clang-1500.3.9.4)`、Apple ld `ld-1053.12`、CMake `4.4.3`、Ninja `1.13.2`、pcsc-lite `2.5.1`、pkgconf `3.0.6`。libusb `1.0.30` source archiveのSHA-256は両runとも`fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf`で、取得時にCI logで照合した。artifact生成に用いるtoolchain/container/dependencyの観測version・digestは両runで一致した。run `36850114564`のmacOS inventoryはjob logの`Report macOS toolchain`（2026-10-01 10:36:07–10:36:10 UTC）、run `36850599261`は同step（10:40:46–10:40:49 UTC）。
+
+このmatching pairは、本ファイルの先行するdarwin-arm64非再現性記録（run `36811522001`と`36826506813`の`px4d`差、LC_UUID/署名領域のbuild間変動）に対し、commit `78e1c36`での修正結果を示す。先行記録は非再現性の履歴として削除せず保持する。commit `78e1c36`に対するexact-candidate hardware canaryは未実施であり、本記録は機種hardware claimやREADME/support表示を更新しない。
+
 ## 2026-10-01 v0.1.9候補の同一serial列挙確認
 
 CI candidate commit `fab5491365eae35a5adc0ce818092384eb5b9647` / workflow run `36811522001` の Linux glibc x86_64 archive（SHA-256 `2627d8889143c22eb45fe8217b39d9123ea9a69b9c22192d8cafbd16c42cc775`）から展開した候補バイナリを、HAOS Studio Code ServerのDebian/glibc x86_64で実行した。2026-10-01 15:33 JST、M1UR (`0511:0854`)、S1UR (`0511:0855`)、Q3U4 (`0511:084a`の内部USB device 2台)を同時接続した状態で確認した。
