@@ -6,7 +6,7 @@
 
 Stable release の検証記録は本ファイルへ日付付きで追記する。新しい records directory や template framework、汎用スクリプトは作らない。release record には候補 version/commit/CI run、9 archive（8 binary + source）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、canary/soak の選定理由（環境ID E01–E17、固定順の位置、単一OS規則による非該当を含む）、各 test の環境ID・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
-## 2026-10-02 v0.1.9 release-candidate試験（必須matrix完了・最終整理中）
+## 2026-10-02 v0.1.9 release-candidate試験（必須matrix完了）
 
 候補source commit `0353fba362c4a64331738c2fb246cd9576bdfdf8`（`docs: codify release validation procedure`）に対し、release-candidate workflow run [`36878304743`](https://github.com/Khronos31/px4-userland/actions/runs/36878304743) と独立run [`36879005809`](https://github.com/Khronos31/px4-userland/actions/runs/36879005809) を実行した。両runは全job success。各候補で8 binary archiveとsource archiveのchecksumを照合し、9 archive本体と外側`SHA256SUMS`は2 run間で全てbyte-identicalだった。`SHA256SUMS`のSHA-256は`e38cb6638e87d169e7228cde9855ac3ebfbbc68fd75aef6a5ec404b01f76c895`。v0.1.8 Stable（tag commit `817d9c6952d71b1c85c815e71c25f6170554da18`）との比較では、8 binary archiveとsource archiveの全9件がbyte-different。今回のLinux glibc x86_64 archiveは`1ada505e9b0ca7071226ce32821862cdd131d5f4f7dc5d68d4f38d24ed9af80b`。
 
@@ -28,7 +28,22 @@ v0.1.8 Stable公開archiveとcandidate archiveのchecksum比較（2 run間は同
 | android-x86_64 | `29439449f8743b7c9e35c35c0181136fd311822742603ff760ed46b4c3fb0711` | `ae20094b04861f9952044b43c6689a7489b110264f684c3c65b7ecfee31c3ecf` | no |
 | source | `e66d2260f3b40ef6c91a3a52cac8cacd067cafc567d5a7e7f13c5cb6d85fa03c` | `a5ef8c885ca7d53d34fb6922ae8941daae781e52f9f18b7fd540fd5c7f1a33d6` | no |
 
-変更impactはdevice identity/profile、USB discovery/path選択、POSIX IPC endpoint lease、Termux 2-FD launcher、LNB capability/GPIO guardにまたがる。今回のsoakはユーザー判断で「実施しない」。必須canonical matrixは完了したが、Stable release gateの最終判定・公開は未実施である。
+#### 試験結果commit後のCI artifact payload比較
+
+試験結果commit `024469492cbdba4d31ad8c25f31286edbc2a0f24` に対する独立したcandidate run [`36993913855`](https://github.com/Khronos31/px4-userland/actions/runs/36993913855) と [`36993953559`](https://github.com/Khronos31/px4-userland/actions/runs/36993953559) は全job success。両runの9 archive本体と外側`SHA256SUMS`はbyte-identicalで、`SHA256SUMS`のSHA-256は`e855376a9d3f093f82cd2b26c6feb44b1c2b97e8a5f8256429aca2e8e53a3d9b`。
+
+run `36993913855` の8 binary archiveを実機試験に使ったrun `36878304743` のarchiveと展開して比較した。8件すべてで差があったのは同梱`README.md`、`manifest.json`の`source_ref`とREADME file entry、内側`SHA256SUMS`だけで、その他のfile payloadはbyte-identicalだった。source archiveは結果commitのREADME/docs snapshotを含むため異なる。これは文書更新後のpayload比較であり、実機再試験の記録ではない。
+
+変更impactはdevice identity/profile、USB discovery/path選択、POSIX IPC endpoint lease、Termux 2-FD launcher、LNB capability/GPIO guardにまたがる。今回のsoakはユーザー判断で「実施しない」。本節はcandidate試験の記録であり、tag後のrelease CIおよび公開成果物比較は別工程で行う。
+
+### single-bridge profileの既存support claim impact判定
+
+PX-M1UR/PX-S1URのLinux x86_64 nativeおよびHAOS SCS Debian/glibcで既存のtuner/card/native PC/SC claimは、candidate source `0353fba`のhunk分析により通常の単独接続・serial指定経路について`継承`と判定した。baseline evidenceはcommit `2f555ff`のnative AnduinOSとHAOS SCS試験（本ファイル2026-09-29/30節）。この判定は衝突する2機種の同時運用や明示path選択を含まない。
+
+- `identity.cpp`ではsingle-bridge profileをserialとmodelで別candidateとして保持する。1台だけが見える通常経路では該当serial/modelのready groupは1件となり、従来と同じobserved USB deviceが選ばれる。`libusb_transport.cpp`はそのgroupのobservation indexからhandleを開くため、1 observationの通常serial指定ではselection resultは変わらない。candidateではM1UR/S1UR同時列挙と曖昧serial拒否を別途実機確認した。
+- `posix_ipc.cpp`の追加leaseは既存serial名endpointとIPC wireを維持し、単独daemonの通常serial endpointは他instanceとの競合がない。`pcsc_ifd_adapter.cpp`の既存`device=`は維持され、追加の`instance=`と排他的に選べる。
+- `it930x.cpp`のGPIO 11判定は、PX-M1UR/PX-S1URでは旧`single_receiver`判定と同じく設定・readbackを行わない。PX-M1URのLNB 15V拒否はcandidateで実機確認した。MLT5 profileはsingle bridgeであり、profile変更後も15V capability true、multi-receiver board経路のGPIO条件は従来どおりである。
+- M1UR/S1URの同一serial同時接続時に`--usb-path`/`--instance`で個別起動する経路、Termux上の両機種、PC/SC `instance=`は`未認定`のまま。candidateでの実機確認は行っていない。
 
 E01 HAOS Studio Code Server上のDebian 13.7 x86_64/glibc 2.41で、上記run `36878304743`の`linux-glibc-x86_64` archiveを追加確認した。E01はこのarchiveの必須canonical環境E03 AnduinOSの代替ではなく、以下はE01だけのsupplemental evidenceである。試験窓は2026-10-01 UTC（2026-10-02 JST）。接続機器はPX-M1UR (`0511:0854`)、PX-S1UR (`0511:0855`)、PX-Q3U4 (`0511:084a`の内部USB device 2台)。
 
@@ -157,6 +172,9 @@ run 36826506813の9 archiveはcommit `8596cb8`時点で生成されており、�
 |---|---|---|
 | `--list` / `--list-json`でのenclosure、USB位置、receiver、LNB対応表示 | 今回再検証 | 上記同時接続実機出力。M1UR/S1UR serial衝突、Q3U4の2内部device grouping、receiverごとの`lnb_15v_supported`を確認。 |
 | M1UR/S1UR同一serialの曖昧な`--device`指定拒否 | 今回再検証 | 同時接続実機で終了コード2、2候補を表示、新規runtime pathなし。 |
+| PX-M1UR/PX-S1UR Linux x86_64 native（AnduinOS）通常single-device tuner/card/native PC/SC claims | 継承 | baseline commit `2f555ff`のprofile別hardware evidenceを、上記single-bridge identity/transport/IPC/IFD hunk分析に基づき継承。candidateでは同一serial列挙・曖昧拒否・M1UR 15V要求拒否を実機確認。衝突中の`--usb-path`/`--instance`個別起動は未認定。 |
+| PX-M1UR/PX-S1UR HAOS SCS Debian/glibc x86_64 通常single-device tuner/card/native PC/SC claims | 継承 | baseline commit `2f555ff`のprofile別hardware evidenceを、上記single-bridge identity/transport/IPC/IFD hunk分析に基づき継承。candidateでは同一serial列挙・曖昧拒否・M1UR 15V要求拒否を実機確認。衝突中の`--usb-path`/`--instance`個別起動は未認定。 |
+| DTV02A-5TS-P / PX-MLT5PE Linux x86_64 native tuner/card claims | 継承 | 既存のPR #5 hardware evidenceを、single-bridge profileのserial/model groupingとunique-device selectionが同一observationを選ぶこと、およびMLT5の15V/GPIO条件が維持されるhunk分析に基づき継承。candidateの同profile実機試験は行っていない。 |
 | PX-Q3U4 SCS native/glibc 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `2627d888...c42cc775`。E01、2026-10-01 06:11:46–06:24:43 UTC。`/config/.work/px4-userland/v0.1.9-candidate/scs-runner.sh`をlive/default modeで実行し、daemonは`px4d --device 00001205000960 --usb-path 1-2.3.1 --usb-path 1-2.3.2 --instance v019-q3u4-canary`で起動、`px4-ts`/`px4ctl`も`--instance`で接続した。8 receiver overlap 603秒、status snapshot 51回（cycle1）+1回（cycle2）すべてready/streaming、APDU batch 52件（cycle1 51+cycle2 1、各transmit-count=10）すべてSW 90:00、cycle2の8/8 stop/reopen clean、終了後process/runtime残留なし。receiver 0–6は全counter 0。RX7値は下記。実行ログ: `/config/.work/px4-userland/v0.1.9-candidate/q3u4-glibc-results/20261001061146/`. |
 | PX-Q3U4 AnduinOS/glibc E03 8 receiver short matrix | 今回再検証 | Exact candidate archive SHA `1ada505e9b0ca7071226ce32821862cdd131d5f4f7dc5d68d4f38d24ed9af80b`。列挙、card hotplug/APDU、30秒8 receiver混在受信、USB切断・再接続後のdaemon再起動、APDUを確認。再接続後receiver 0–6全counter 0、receiver 7はexit 8（TEI 10,909・continuity 574、sync/queue/USB error 0）。終了後process/runtime残留なし。fresh同時8受信`px4_drv`比較はTEI 11,035・continuity 657でcandidate値が両方とも超えず。記録は上記E03詳細および`/config/.work/px4-userland/e03-results/`。 |
 | PX-Q3U4 HAOS Alpine/musl 8 receiver T/S mixed load | 今回再検証 | Candidate archive SHA `b769cd41...e6fba644`。E02、2026-10-01 05:50:59–06:01:39 UTC。600秒、RX0–7すべてsync/TEI/continuity/queue/USB error 0、status 88/88、card/APDU/PC/SC成功、終了時residualなし。別10秒stop/reopen smokeで8/8 clean。candidate CLI hashesとmanifest source_refを検証し、試験後にadd-onを停止、試験optionsとstage済み候補archiveを開始前の値へ復元。実行ログ: `/addon_configs/local_userland_stable_alpine_test/results/20261001T055059Z/`および`20261001T060233Z/`. |

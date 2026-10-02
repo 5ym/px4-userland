@@ -68,15 +68,15 @@
 | OS / 環境 | 対象model/profile | build-tested | tuner-hardware-verified | card-core-hardware-verified | native-card-adapter-verified | 備考 |
 |---|---|:---:|:---:|:---:|:---:|---|
 | Linux x86_64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | 完全静的CLI + glibc/musl別IFD Handler |
-| Linux x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | AnduinOS上でprofile別30分連続受信、機種固有T/S、カード、retune、stop/reopen、USB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。候補版の証拠は[検証結果](docs/platforms/validation-results.md)参照。 |
+| Linux x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | AnduinOS上でprofile別30分連続受信、機種固有T/S、カード、retune、stop/reopen、USB再接続後のdaemon再起動による復旧を確認。v0.1.9では通常の単独接続経路を既存証拠から継承し、serial衝突表示と曖昧指定拒否をcandidateで確認。同一daemonの自動USB再接続と、衝突中の`--usb-path`による個別起動は未認定。[判定根拠](docs/platforms/validation-results.md)参照。 |
 | Linux x86_64 | DTV02A-5TS-P実機（PX-MLT5PEと同一のMLT5 profile） | 完了 | 検証済み | 検証済み | 未検証 | [PR #5](https://github.com/Khronos31/px4-userland/pull/5)：Ubuntu 26.04 amd64で5 tunerの地上波・BS/CS TSと内蔵カードリーダー利用を確認。IFD/PCSC経路は未確認。 |
 | Linux aarch64 | 全model/profile | 完了 | 未検証 | 未検証 | 未検証 | aggregate row。Q3U4のtargeted E15 hardware smokeは実施済みだが、全model/profileを検証した意味ではない。 |
-| HAOS SCS Debian/glibc x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | 候補版で30分受信、PC/SC併走、機種該当のT/S、card/USB再接続後のdaemon再起動による復旧を確認。同一daemonの自動USB再接続は未確認。 |
+| HAOS SCS Debian/glibc x86_64 | PX-M1UR / PX-S1UR | 完了 | 検証済み | 検証済み | 検証済み | 既存candidateで30分受信、PC/SC併走、機種該当のT/S、card/USB再接続後のdaemon再起動による復旧を確認。v0.1.9では通常の単独接続経路を既存証拠から継承し、serial衝突表示と曖昧指定拒否をcandidateで確認。同一daemonの自動USB再接続と、衝突中の`--usb-path`による個別起動は未認定。[判定根拠](docs/platforms/validation-results.md)参照。 |
 | HAOS Supervisor Alpine/musl x86_64 | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 未認定（一部PC/SC smoke） | 候補版でT/S該当系統、direct APDUとPC/SC reader smokeは成功。30分profile認定、card抜去/再挿入、反復PC/SC APDUと物理USB抜差しは未実施。 |
 | macOS arm64 | PX-Q3U4 | 完了 | 検証済み | 検証済み | 検証済み | Apple Silicon。v0.1.9 candidateで8 receiver受信、card hotplug/APDU、USB reconnect後のdaemon復旧、Homebrew pcsc-lite consumerを確認。[検証結果](docs/platforms/validation-results.md)参照。 |
 | macOS arm64 | PX-M1UR | 完了 | 未認定 | 未認定 | 未認定 | E04で同時接続時のlist/JSONと曖昧serial拒否を確認。受信・card・native PC/SCは未認定。 |
 | macOS arm64 | PX-S1UR | 完了 | 未認定 | 未認定 | 未認定 | E04で同時接続時のlist/JSONと曖昧serial拒否を確認。受信・card・native PC/SCは未認定。 |
-| Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 未認定（個別claimの照合中） | 未認定（個別claimの照合中） | 該当なし（N/A） | 各ABIのv0.1.9 candidateで2-FD launcher、8 receiver受信、card hotplug/APDU、USB reconnect後の復旧を実機確認済み。receiver 7比較を含むsupport claimの判定根拠は[検証結果](docs/platforms/validation-results.md)参照。 |
+| Android Termux（aarch64 / armv7a / x86_64） | PX-Q3U4 | 完了 | 未認定（receiver 7のfresh参照比較条件を満たす根拠なし） | 未認定（receiver 7のfresh参照比較条件を満たす根拠なし） | 該当なし（N/A） | 各ABIのv0.1.9 candidateで2-FD launcher、8 receiver受信、card hotplug/APDU、USB reconnect後の復旧を実機確認済み。receiver 7のburstを含む個別claimの判定は[検証結果](docs/platforms/validation-results.md)参照。 |
 | Android Termux（aarch64 / armv7a / x86_64） | PX-M1UR / PX-S1UR | 完了 | 未認定（一部実機試験） | 未認定（一部実機試験） | 該当なし（N/A） | 各architectureでT/S該当系統と受信中APDUを確認。card抜去/再挿入とUSB切断/再接続は未実施。APKは対象外。 |
 | Android ad-hoc APK | PX-Q3U4 | 対象外 | 対象外 | 対象外 | 該当なし（N/A） | dtv-android 所管。本リポジトリの配布物・release gate には含めません（過去の内部試験記録は検証結果参照） |
 | Windows | — | — | — | — | — | 非対応 / 対象外（out of scope） |

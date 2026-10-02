@@ -1,6 +1,17 @@
 # Stable リリース前検証手順
 
-この文書は Stable リリースごとの実行手順を定める。合否条件と認定条件の正本は [`SPEC.md`](../SPEC.md) 10章であり、両者に差があれば SPEC を優先し、手順書を更新する。配布する各主要OS/architecture binary artifactについて、final candidateの実機確認を毎回行う。必須検証の一連の操作に総時間上限は設けない。物理抜差しをユーザーに依頼した時点から、その操作への応答を最大5分待つ。各依頼の直前にHAOS側でCodexは`beep`、Claude Codeは`vibe`を実行する。5分を超える連続負荷試験は別のsoak手順にする。安定性に影響し得る変更のsoak有無、時間（10分/30分/2時間）、対象OSはユーザーが決める。エージェントは変更差分・過去記録・影響し得る範囲を要約し、判断を待つ。検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一する。
+この文書は Stable リリースごとの実行手順を定める。合否条件と認定条件の正本は [`SPEC.md`](../SPEC.md) 10章であり、両者に差があれば SPEC を優先し、手順書を更新する。
+
+Stable releaseは次の順で進める。
+
+1. リリース候補のsource commitを固定し、そのcommitからCIでcandidate artifactを作る。
+2. candidate artifactを展開し、必要な全OS/architectureで実機試験と仕様変更の試験を完了する。
+3. 試験結果を文書に記録してcommitする。
+4. その結果commitにタグを付け、release CIを実行して公開する。
+
+工程2の全試験が完了するまではcandidate commitを固定して使う。工程2の完了後、工程3で試験結果を記録するcommitは次工程への移行であり、candidateの差し替えではない。工程3の結果commit後に工程2へ戻って実機試験を繰り返さない。candidateのsource、package、build inputを工程2の完了前に変更した場合は、その変更を含む新candidateをCIで作り、影響する試験を行う。
+
+配布する各主要OS/architecture binary artifactについて、工程2でfinal candidateの実機確認を行う。必須検証の一連の操作に総時間上限は設けない。物理抜差しをユーザーに依頼した時点から、その操作への応答を最大5分待つ。各依頼の直前にHAOS側でCodexは`beep`、Claude Codeは`vibe`を実行する。5分を超える連続負荷試験は別のsoak手順にする。安定性に影響し得る変更のsoak有無、時間（10分/30分/2時間）、対象OSはユーザーが決める。エージェントは変更差分・過去記録・影響し得る範囲を要約し、判断を待つ。検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一する。
 
 ## 0. 配布artifact matrixと手順の共通部品
 
@@ -254,7 +265,8 @@ Termuxのarchitecture、Termux launcherのFD path、glibc/musl、native PC/SC ad
 1. 候補 commit に対応する `portable userland foundation` workflow を確認する。path filter 等により自動実行されていなければ、GitHub Actions の `workflow_dispatch` でその候補 ref を指定して実行する。
 2. workflow 内の unit/offline test、各 target build、source/relink、`release-candidate` と、それに依存する4つの Ubuntu/Alpine × x86_64/aarch64 artifact smoke job がすべて成功していることを確認する。失敗 job を無視して先へ進まない。
 3. `release-candidate` artifact が候補 commit の `source_ref` を示し、8 binary archiveと対応 source archiveの計9 tar archive、およびその外側 `SHA256SUMS` を含むことを確認する。チェックサムを照合し、CIの manifest・license・corresponding-source・binary/source archive audit が通っていることを確認する。
-4. 候補 commit が変わった場合は、その commit の CI と artifact を取り直す。前の commit の archive、手元で別途作った build、PR run の古い artifactを final candidate の代用にしない。
+4. 工程2の試験完了前に候補source commitが変わった場合は、そのcommitのCIとartifactを取り直す。前のcommitのarchive、手元で別途作ったbuild、PR runの古いartifactを新candidateの代用にしない。工程3の試験結果commitは候補source commitの変更ではなく、工程4ではその結果commitにタグを付けてrelease CIを実行する。
+5. release CIが生成した8 binary archiveを展開し、実機試験に使ったfinal candidate archiveと各payloadを比較する。更新された`README.md`、それを反映した`manifest.json`の`source_ref`およびREADMEのhash、内側の`SHA256SUMS`以外に差があれば公開を止めて原因を調べる。source archiveは工程3の記録commitを含むためbinary candidateのsource archiveとは異なる。比較したrun、archive、差異の判定をrelease recordへ記録する。
 
 手動dispatchとartifact取得には次の短いCLI手順を使える。`<candidate-ref>`、`<run-id>`、`<new-empty-dir>`を実際の値へ置き換え、artifactは新しい空ディレクトリへ展開する。既に成功済みの自動runが候補commitと一致するなら再dispatchしない。
 
