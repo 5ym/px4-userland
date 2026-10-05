@@ -689,8 +689,10 @@ Result<void> Q3U4FrontendBank::select_satellite_slot_with_timeout(
     }
     // A TSID read within the budget is written even when the waits have used
     // all of it, as px4_drv does; the read-back then gets one check.
-    return select_satellite_tsid_locked(local_receiver, tsid,
-                                         timeout_ms - elapsed_ms);
+    // Clamp rather than rely on the loop never waiting past the budget.
+    const std::uint32_t remaining_ms =
+        elapsed_ms < timeout_ms ? timeout_ms - elapsed_ms : 0U;
+    return select_satellite_tsid_locked(local_receiver, tsid, remaining_ms);
 }
 
 Result<void> Q3U4FrontendBank::select_satellite_tsid(
