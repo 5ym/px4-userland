@@ -687,11 +687,8 @@ Result<void> Q3U4FrontendBank::select_satellite_slot_with_timeout(
         remember_failure(failed);
         return failed;
     }
-    if (elapsed_ms >= timeout_ms) {
-        const auto failed = Result<void>::failure(Error::TIMEOUT);
-        remember_failure(failed);
-        return failed;
-    }
+    // A TSID read within the budget is written even when the waits have used
+    // all of it, as px4_drv does; the read-back then gets one check.
     return select_satellite_tsid_locked(local_receiver, tsid,
                                          timeout_ms - elapsed_ms);
 }
