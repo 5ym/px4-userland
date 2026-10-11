@@ -992,20 +992,34 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio locator is missing' }
-          $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $visualStudio) { throw 'MSVC x64 build tools are missing' }
-          $vcvars = Join-Path $visualStudio 'VC/Auxiliary/Build/vcvarsall.bat'
-          $source = Join-Path $env:GITHUB_WORKSPACE 'userland/tests/windows_winscard_import_tests.cpp'
-          $winscard = Join-Path $env:RUNNER_TEMP 'win-candidate-extract/winscard'
-          $executable = Join-Path $winscard 'px4_windows_winscard_msvc_import_tests.exe'
-          $object = Join-Path $env:RUNNER_TEMP 'px4_windows_winscard_msvc_import_tests.obj'
-          # Use Microsoft's installed SDK winscard.lib, never the import
-          # library emitted by our DLL build. This fixture does not open cards.
-          $command = "call `"$vcvars`" x64 >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT `"$source`" /Fe:`"$executable`" /Fo:`"$object`" /link winscard.lib"
-          & $env:ComSpec /d /s /c $command
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # MSVC/vctip writes its own Microsoft profile/cache data. Keep every
+          # compiler child outside the product's strict empty-runtime fixture.
+          $productLocalAppData = $env:LOCALAPPDATA
+          $compilerProfile = Join-Path $env:RUNNER_TEMP ('px4-msvc-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $compilerProfile | Out-Null
+          $compileExit = 1
+          try {
+            $env:LOCALAPPDATA = $compilerProfile
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+            if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio locator is missing' }
+            $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (-not $visualStudio) { throw 'MSVC x64 build tools are missing' }
+            $vcvars = Join-Path $visualStudio 'VC/Auxiliary/Build/vcvarsall.bat'
+            $source = Join-Path $env:GITHUB_WORKSPACE 'userland/tests/windows_winscard_import_tests.cpp'
+            $winscard = Join-Path $env:RUNNER_TEMP 'win-candidate-extract/winscard'
+            $executable = Join-Path $winscard 'px4_windows_winscard_msvc_import_tests.exe'
+            $object = Join-Path $env:RUNNER_TEMP 'px4_windows_winscard_msvc_import_tests.obj'
+            # Use Microsoft's installed SDK winscard.lib, never the import
+            # library emitted by our DLL build. This fixture does not open cards.
+            $command = "call `"$vcvars`" x64 >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT `"$source`" /Fe:`"$executable`" /Fo:`"$object`" /link winscard.lib"
+            & $env:ComSpec /d /s /c $command
+            $compileExit = $LASTEXITCODE
+          } finally {
+            $env:LOCALAPPDATA = $productLocalAppData
+          }
+          if ($compileExit -ne 0) { exit $compileExit }
+          # Execute with the isolated product profile restored so the final
+          # cleanup still detects any real endpoint/worker residue.
           & $executable
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Clean up isolated owned LOCALAPPDATA (always)
