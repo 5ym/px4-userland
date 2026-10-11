@@ -6,8 +6,9 @@ Stable releaseは次の順で進める。
 
 1. リリース候補のsource commitを固定し、そのcommitからCIでcandidate artifactを作る。
 2. candidate artifactを展開し、必要な全OS/architectureで実機試験と仕様変更の試験を完了する。
-3. 全必要試験の完了後、ユーザーがノート作成を依頼したら `release-notes/vX.Y.Z.md` を書く。試験結果と機械可読記録を文書だけのcommitへまとめる。
-4. 別の「タグ＋リリース」依頼の後だけ、その結果commitにタグを付ける。tag buildと独立した公開workflowが照合・Draft・公開・公開後照合を行う（[`releasing.md`](releasing.md)）。追加のEnvironment手動承認は設けない。
+3. 全必要試験と再現性確認の完了後、試験結果を文書へ記録してcommitする。
+4. ユーザーが明示的にノート作成を依頼した後、`release-notes/vX.Y.Z.md` と機械可読記録を確定し、工程3とは別の文書だけの後続commitにする。
+5. 別の「タグ＋リリース」依頼の後だけ、試験結果とノートの両commitを含むcommitにタグを付ける。tag buildと独立した公開workflowが照合・Draft・公開・公開後照合を行う（[`releasing.md`](releasing.md)）。追加のEnvironment手動承認は設けない。commit・push・mergeも各操作のユーザー依頼に従う。
 
 工程2の全試験が完了するまではcandidate commitを固定して使う。工程2の完了後、工程3で試験結果を記録するcommitは次工程への移行であり、candidateの差し替えではない。工程3の結果commit後に工程2へ戻って実機試験を繰り返さない。candidateのsource、package、build inputを工程2の完了前に変更した場合は、その変更を含む新candidateをCIで作り、影響する試験を行う。
 
@@ -492,37 +493,35 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
 
 - i386 配布 artifact は存在しない。source archive を native build し、CTest と Q3U4 の T/S 同時受信、内蔵 card APDU を確認する（[Debian i386](platforms/debian-i686.md)）。record は Stable `v0.1.3` source archive であり履歴。選定: 該当構成手順の変更時のみ。
 
-### E17 Windows 11 x86_64（Windows archive必須matrix・Phase 1）
+### E17 Windows 11 x86_64（Windows archive必須matrix・Phase 1/2）
 
 - 位置づけ: `windows-x86_64`配布artifactの毎回必須の回帰試験対象。releaseごとにnative libusbのtunerと
   CARD_*、実機の物理回帰を要求する。CIのbuild/offline test成功は`build-tested`のみを示し、本節が完了する
   まで当該archiveのgateは未完了、support表示は`未認定`（`hardware-unverified`）である。
   exact candidate archive（`px4-userland-<version>-windows-x86_64.zip`）をnative Windows 11 x64（実機）で
   実行する。`windows-2022` CIはtest OSであり、Windows 11実機の代用にしない。
-- Phase 1範囲: `px4d`/`px4-ts`/`px4ctl`とversioned local IPCのCARD_*経路だけを使う。WinSCard互換DLLと
-  Microsoft PC/SC IFD登録はPhase 2以降で本節の対象外であり、native-card-adapter列は`該当なし（N/A）`とする。
+- 対象範囲: `px4d`/`px4-ts`/`px4ctl`とversioned local IPCのCARD_*に加え、SPEC 7.6のx64 B25限定
+  application-local WinSCard DLLを確認する。配置・API・対象clientは[Windows WinSCard手順](platforms/windows-winscard.md)に従う。
+  一般WinSCard全API、x86/native ARM64 DLL、Microsoft PC/SC IFD登録は対象外。native-card-adapter列は
+  未試験なら`未認定`とし、Phase 1の実測やCI成功だけで合格へ変えない。
 - preflight（read-only）:
   - `$PSVersionTable.PSVersion`、`[System.Environment]::OSVersion`、`chcp`のdefault code page、`$env:LOCALAPPDATA`を記録する。
-  - `$env:LOCALAPPDATA`のowner SIDとACLを検証する。worker wake pipeの親検証（`verify_runtime_parent`）はownerが
-    現在user SIDと一致し、書込み可能なACEが現在user/SYSTEM/Administratorsだけであることを要求する。実測CI runner
-    では既定ownerが`BUILTIN\Administrators`でこの条件を満たさない。owner不一致、または現在user以外のuntrusted
-    writerがあれば、後述のruntime dir / ACLで示すタスク専用の安全な親を使う。owner SID・各ACE・protected flagを
-    記録し、この検証はdaemon起動前に行う。
+  - `$env:LOCALAPPDATA`のowner SID・各ACE・protected flagをread-onlyで記録する。明示的な`--runtime-dir`を使う
+    本手順では、この既定profileの環境変数やACLを変更しない。worker wakeとendpointの親検証は明示した`$RT`へ
+    適用される。daemon起動前に`$RT`のownerが現在user SIDで、現在userに書込み権があり、書込み可能なACEが
+    現在user/SYSTEM/Administratorsだけであることを確認し、owner SID・各ACE・protected flagを記録する。
   - WinUSB backend: `Get-PnpDevice -PresentOnly`と`pnputil /enum-drivers`で対象USB ID（`0511:xxxx`）の現driver
     bindingをinventoryとして記録する。ユーザー確認なしにWinUSB INF・driverのinstall/変更/削除
     （`pnputil /add-driver`・`/delete-driver`等）を行わず、kernel driverやINFを導入しない。
   - PX-S1UD/mirakc等の稼働経路を変更しない。対象Q3U4をclaim中の他daemonがあれば`px4d`が`busy`で失敗することを
     確認する。firmwareは利用者が用意した既存ファイルを`--firmware`で指定するだけで、download・抽出・変換をしない。
 - runtime dir / ACL:
-  - daemonのworker wake pipeは`LOCALAPPDATA`を親として`verify_runtime_parent`（ownerが現在user SID、trusted
-    writerのみ）を通す必要がある。既定profileのACLがこの条件を満たすとは仮定しない。後述のrunnable setupは
-    常にタスク専用の短い親ディレクトリを作り、ownerを現在user SID、継承を切ったprotected DACLで現在userだけに
-    許可して、daemonへprocess-scopedで`LOCALAPPDATA`として渡す（setupの`$LAP`）。profile ACL・global env・
-    driverは変更しない。これは検証fixtureであり、製品defaultの不具合を修正したものではない。実際の製品運用でも
-    安全な親が必要で、その要件は製品の`verify_runtime_parent`のままとする。`$RT`はこの親の下に置き、worker
-    socketとendpoint socketの両方がAF_UNIXの108 byte未満に収まることをsetupで確認する。`px4d`は存在しない
-    `--runtime-dir`を`serial endpoint: NOT_FOUND`（exit 3）で拒否する（2026-10-10 native Windows 11で観測）ため、
-    `$RT`も親と同じowner・protected DACLで事前作成する。
+  - 明示した`--runtime-dir`はworker wakeにも渡される（SPEC 7.5）。別の`LOCALAPPDATA`へfallbackしない。
+    タスク専用の短いlocal drive絶対pathを`$RT`とし、事前に利用者へACL設定を確認してから、ownerを現在user SID、
+    継承を切ったprotected DACLで現在userだけに許可して作る。profile ACL・global env・driverは変更しない。
+    `verify_runtime_parent`のowner・trusted writer検証、reparse point拒否、file identity検証は弱めない。
+    `$RT`配下のworker socketとendpoint socketがともにAF_UNIXの108 byte未満に収まることを確認する。
+    長すぎる場合は安全な短い親pathを選び直す。`px4d`は存在しない`--runtime-dir`を拒否するため、`$RT`を事前作成する。
   - setupはWindows PowerShell 5.1（`powershell.exe`）で実行する。PowerShell 7の.NETには
     `[System.IO.Directory]::CreateDirectory(string, DirectorySecurity)`がない。PowerShell 5.1で
     `$ErrorActionPreference = 'Stop'`のままnative commandのstderrを`2>&1`で取り込むと終了errorになるため、
@@ -555,40 +554,37 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
     Write-Host "  lap ace identity=$($ace.IdentityReference) rights=$($ace.FileSystemRights) inherited=$($ace.IsInherited)"
   }
 
-  # 既定profileのACLがworker親検証を満たすとは仮定できないため、常にタスク専用の保護された親を作る
-  # （検証fixture）。profile ACL・global env・driverは変更しない。製品defaultの不具合修正ではない。
+  # 利用者へACL設定を確認したタスク専用の短いruntime parentを使う。LOCALAPPDATAはそのまま継承する。
   $parentRoot = [System.Environment]::GetEnvironmentVariable('RUNNER_TEMP')
   if (-not $parentRoot) { $parentRoot = [System.Environment]::GetEnvironmentVariable('TEMP') }
-  $LAP = Join-Path $parentRoot ('px4e17lap-' + [guid]::NewGuid().ToString('N').Substring(0,8))
-  if (Test-Path $LAP) { throw "refusing to reuse existing LOCALAPPDATA parent: $LAP" }
-  $acl = New-Object System.Security.AccessControl.DirectorySecurity
-  $acl.SetOwner($me)
-  $acl.SetAccessRuleProtection($true, $false)
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-  [System.IO.Directory]::CreateDirectory($LAP, $acl) | Out-Null
-
+  $RT = Join-Path $parentRoot ('px4e17-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+  if (Test-Path $RT) { throw "refusing to reuse existing runtime parent: $RT" }
   $ID = '<device serial>'   # daemonの--device
-  $RT = Join-Path $LAP 'px4-e17-<taskid>'
   # AF_UNIX sun_pathは108 byte未満。worker socketとendpoint socket（<RT>\px4-userland\<ID>\<name>.sock）の
   # full sampleをUTF-8 byte数で確認する。
-  $sampleWorker = Join-Path $LAP ('px4-wake-' + ('0' * 16) + '\w.sock')
+  $sampleWorker = Join-Path $RT ('px4-wake-' + ('0' * 16) + '\w.sock')
   $sampleControl = Join-Path (Join-Path (Join-Path $RT 'px4-userland') $ID) 'control.sock'
   $sampleStream = Join-Path (Join-Path (Join-Path $RT 'px4-userland') $ID) 'stream.sock'
   $workerBytes = [System.Text.Encoding]::UTF8.GetByteCount($sampleWorker)
   $controlBytes = [System.Text.Encoding]::UTF8.GetByteCount($sampleControl)
   $streamBytes = [System.Text.Encoding]::UTF8.GetByteCount($sampleStream)
-  Write-Host "LOCALAPPDATA parent=$LAP workerSocketBytes=$workerBytes controlSocketBytes=$controlBytes streamSocketBytes=$streamBytes"
+  Write-Host "runtime parent=$RT workerSocketBytes=$workerBytes controlSocketBytes=$controlBytes streamSocketBytes=$streamBytes"
   if ($workerBytes -ge 108 -or $controlBytes -ge 108 -or $streamBytes -ge 108) {
     throw "socket path too long for AF_UNIX: worker=$workerBytes control=$controlBytes stream=$streamBytes"
   }
-  # px4dは--runtime-dirの存在を要求する。親と同じowner・protected DACLで作る。
+  # px4dは--runtime-dirの存在を要求する。current user所有・protected DACLで作る。
   $rtAcl = New-Object System.Security.AccessControl.DirectorySecurity
   $rtAcl.SetOwner($me)
   $rtAcl.SetAccessRuleProtection($true, $false)
   $rtAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
     $me, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
   [System.IO.Directory]::CreateDirectory($RT, $rtAcl) | Out-Null
+  $actualRtAcl = Get-Acl -LiteralPath $RT
+  $rtOwner = $actualRtAcl.GetOwner([System.Security.Principal.SecurityIdentifier])
+  Write-Host "runtime parent=$RT owner=$($rtOwner.Value) currentUser=$($me.Value) protected=$($actualRtAcl.AreAccessRulesProtected)"
+  foreach ($ace in $actualRtAcl.Access) {
+    Write-Host "  rt ace identity=$($ace.IdentityReference) rights=$($ace.FileSystemRights) inherited=$($ace.IsInherited)"
+  }
 
   # .NET Framework (PowerShell 5.1) ProcessStartInfo.Arguments用のWindows引用。
   function ConvertTo-WindowsArg([string]$value) {
@@ -600,13 +596,11 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   function Join-WindowsArgs([string[]]$values) {
     return ($values | ForEach-Object { ConvertTo-WindowsArg $_ }) -join ' '
   }
-  function Start-OwnedProcess([string]$file, [string[]]$arguments, [bool]$stdin, [string]$localAppData) {
+  function Start-OwnedProcess([string]$file, [string[]]$arguments, [bool]$stdin) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $file
     $psi.Arguments = Join-WindowsArgs $arguments
     $psi.UseShellExecute = $false
-    # この子processだけにLOCALAPPDATAを渡す（通常のprofile環境は変更しない）。
-    if ($localAppData) { $psi.EnvironmentVariables['LOCALAPPDATA'] = $localAppData }
     $psi.RedirectStandardInput = $stdin
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -670,7 +664,7 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   ```
 
   daemon起動・ready確認・受信・CARD・停止（X-START/X-LOAD/X-MON/X-CARD-HP/X-STOP相当）。`$ID`は`--device`、
-  `$FW`は利用者提供firmware。daemonにはprocess-scopedで`LOCALAPPDATA=$LAP`を渡し、通常のprofile環境は変更しない。
+  `$FW`は利用者提供firmware。daemonとCLIは同じ明示的な`--runtime-dir $RT`を使い、`LOCALAPPDATA`はそのまま継承する。
   標準入力をredirectし、`--exit-on-stdin-eof`でcooperative shutdownする。
   ready判定はexit codeだけでなくstatusの`ready=yes` fieldを確認する。CARDは**daemon停止前**に実行する。
   受信はQ3U4では8 receiverを**同時に**起動し（逐次実行で代用しない）、各processを有限時間で待つ。他profileは
@@ -679,7 +673,7 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
 
   ```powershell
   $owned = Start-OwnedProcess (Join-Path $D 'px4d.exe') `
-    @('--device', $ID, '--firmware', $FW, '--runtime-dir', $RT, '--exit-on-stdin-eof') $true $LAP
+    @('--device', $ID, '--firmware', $FW, '--runtime-dir', $RT, '--exit-on-stdin-eof') $true
   $primary = $null
   try {
     $ready = $false
@@ -717,12 +711,12 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   ```
 
   停止後の確認は所有PIDだけを見る（無関係なglobal processを混ぜない）。実際のexit codeとendpoint残留を
-  確認し、空のowned dirだけを削除する。タスク専用の親を作った場合だけ、その親も（空になった後で）削除する:
+  確認し、空のowned runtime dirだけを削除する。既存の`$parentRoot`は削除しない:
 
   ```powershell
   if (-not $owned.Process.HasExited) { throw 'owned px4d is still running after the shutdown attempt' }
   if ($owned.Process.ExitCode -ne 0) { throw "owned px4d exit code was $($owned.Process.ExitCode)" }
-  $ownedDirs = @($RT, $LAP)   # $RTを先に、次に親を確認・削除する
+  $ownedDirs = @($RT)
   foreach ($dir in $ownedDirs) {
     if (-not (Test-Path $dir)) { continue }
     $left = Get-ChildItem -Force $dir
@@ -732,7 +726,27 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   ```
 
   CARDの合否は`card-status`の`present=no`、`card-atr`/`card-apdu`の`NO_CARD`（exit 9）、再挿入後の
-  ATR/reset/APDU 10回成功をoutput fieldとexit値で確認する。PC/SC adapter・WinSCard経由の確認は行わない（N/A）。
+  ATR/reset/APDU 10回成功をoutput fieldとexit値で確認する。これは直接CARD_*の証拠であり、次のWinSCard試験を代用しない。
+
+- Phase 2実機への引継ぎ（SPEC 7.6 / [Windows WinSCard手順](platforms/windows-winscard.md)）:
+  - exact candidate ZIP/run/SHA-256と同版daemon/DLLを使う。applicationの起動前に、そのprocessの
+    `PX4_WINSCARD_RUNTIME_DIR`へ`$RT`を渡す。ambient `LOCALAPPDATA`は変更しない。EXE横への配置だけで成功とせず、
+    applicationが実際にロードしたWinSCard module pathを確認する。System32/SysWOW64・KnownDLL・service設定を変更しない。
+  - EDCB＋選択したB25Decoder実装、recisdb-rs＋そのlibaribb25、TVTest＋logue/CasProcessor＋logue/TvCas
+    （Release x64、Unicode、B25.tvcas、SmartCard選択）を別々のchainとして記録する。上記手順のsource参照を基準に、
+    実際に使った各EXE/decoder/plugin/DLLのsource revision、version、bitness、SHA-256とloaded module pathを残す。
+    source不明や相違は明記し、別version・任意pluginへ互換性を拡張しない。
+  - reader表示・起動成功・ATR/APDUと、実TSのB25解除結果を別項目にする。実際に解除されたTS/視聴・録画の証拠、
+    使用条件・counter・logを保存する。起動や直接IPC APDUだけの成功をdecoder互換性の合格にしない。
+  - 内蔵cardの初期化、正常終了、初期化失敗時RESET、外部reader併用とOS providerの実module path、application再起動を確認する。
+    ユーザー確認後のcard抜去をdaemonに観測させ、再挿入後も旧handleがstaleで暗黙APDU/再接続されないこと、
+    明示的な切断→新規接続で復旧することを確認する（DLLは`SCardReconnect`を公開しない）。USB切断・再接続後は
+    daemonを正常停止して再起動し、旧接続を自動復活させずapplication側も明示的に再初期化して復旧を確認する。
+  - exact TvCas chainではstalled daemon下の終了・再起動も記録する。各CARD requestの4秒timeout、host側retryの累積、
+    起動20秒/終了5秒の期限と実際の終了挙動を確認し、通常終了やmock成功を`TerminateThread`時の安全性へ拡張しない。
+    hangや未回収resourceは失敗として残し、無許可のforce-killで合格へ変えない。
+  - 未実施・失敗・判定保留を残し、上記の新規仕様試験、既存9 artifact matrix、再現性確認、ユーザーのsoak判断と
+    必要な試験が揃うまでgateを完了にしない。既存support claimや過去版だけのリスク受入を今回へ自動継承しない。
 
 - USB再接続（X-USB-HP相当）: 1 receiver clientを起動し、ユーザーの物理USB切断で`DISCONNECTED`/exit 7と
   client残留なしを確認する。再接続後は`--list`/`--list-json`で再列挙を確認し、旧daemonはX-STOPと同じ

@@ -13,6 +13,7 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
+import struct
 import sys
 import tarfile
 import tempfile
@@ -34,6 +35,10 @@ TERMUX_LAUNCHER = _audit.TERMUX_LAUNCHER
 WINDOWS_LIBUSB_DLL = _audit.WINDOWS_LIBUSB_DLL
 WINDOWS_LIBUSB_MARKER = _audit.WINDOWS_LIBUSB_MARKER
 WINDOWS_PLATFORM = _audit.WINDOWS_PLATFORM
+WINDOWS_WINSCARD_ARTIFACT = _audit.WINDOWS_WINSCARD_ARTIFACT
+WINDOWS_WINSCARD_DOCUMENT = _audit.WINDOWS_WINSCARD_DOCUMENT
+WINDOWS_WINSCARD_FUNCTIONS = _audit.WINDOWS_WINSCARD_FUNCTIONS
+WINDOWS_WINSCARD_PCI = _audit.WINDOWS_WINSCARD_PCI
 WINDOWS_TOOLCHAIN_LICENSE_SHA256 = _audit.WINDOWS_TOOLCHAIN_LICENSE_SHA256
 WINDOWS_TOOLCHAIN_LICENSE_NOTICE = _audit.WINDOWS_TOOLCHAIN_LICENSE_NOTICE
 synthetic_pe = _audit.synthetic_pe
@@ -269,9 +274,12 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
             "dependency.libusb.license=LGPL-2.1-or-later\n"
             "dependency.toolchain=llvm-mingw-20250910-ucrt-x86_64\n"
             f"dependency.toolchain.licenses={WINDOWS_TOOLCHAIN_LICENSE_NOTICE}\n"
+            f"dependency.winscard.artifact={WINDOWS_WINSCARD_ARTIFACT}\n"
+            "dependency.winscard.architecture=x86_64\n"
             f"corresponding-source-archive=px4-userland-{version}-source.tar.gz\n\n"
-            "px4d statically includes libusb 1.0.30 under LGPL-2.1-or-later. px4-ts and px4ctl do not link "
-            "libusb. The executables dynamically load only Windows system libraries, including the UCRT and the "
+            "px4d statically includes libusb 1.0.30 under LGPL-2.1-or-later. px4-ts, px4ctl, and the "
+            "application-local x64 WinSCard.dll do not link libusb. The binaries dynamically load only Windows "
+            "system libraries, including the real system WinSCard for external readers, the UCRT and the "
             "WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb loads at runtime. The "
             "C++/unwinder/winpthread/MinGW-w64 runtimes are statically linked. The exact narrow llvm-mingw "
             "toolchain license texts are included under toolchain/ (see the license paths above). The exact "
@@ -422,7 +430,7 @@ def _write_bytes(path: Path, data: bytes) -> None:
 
 
 def self_test_windows_archive(repo_root: Path) -> None:
-    """Package and audit a synthetic Windows Phase 1 archive offline."""
+    """Package and audit a synthetic Windows archive offline."""
     version = source_version(repo_root)
     platform = WINDOWS_PLATFORM
     notice = render_dependency_notice(repo_root, version, platform)
@@ -433,6 +441,7 @@ def self_test_windows_archive(repo_root: Path) -> None:
             "README.md": (repo_root / "README.md").read_bytes(),
             "THIRD_PARTY_NOTICES.md": (repo_root / "THIRD_PARTY_NOTICES.md").read_bytes(),
             "libusb/COPYING": (repo_root / "packaging" / "libusb" / "COPYING").read_bytes(),
+            WINDOWS_WINSCARD_DOCUMENT: (repo_root / WINDOWS_WINSCARD_DOCUMENT).read_bytes(),
         }
         for name in WINDOWS_TOOLCHAIN_LICENSE_SHA256:
             files[name] = (repo_root / "packaging" / "windows-toolchain" / "licenses" /
@@ -440,6 +449,10 @@ def self_test_windows_archive(repo_root: Path) -> None:
         for program in PROGRAMS:
             poison = WINDOWS_LIBUSB_MARKER if program == "px4d" else b""
             files[f"{program}.exe"] = synthetic_pe(imports=("KERNEL32.dll",), poison=poison)
+        files[WINDOWS_WINSCARD_ARTIFACT] = synthetic_pe(
+            imports=("KERNEL32.dll",), exports=WINDOWS_WINSCARD_FUNCTIONS, dll=True,
+            data_exports={name: struct.pack("<II", protocol, 8)
+                          for name, protocol in WINDOWS_WINSCARD_PCI.items()})
         return files
 
     def evidence_for(files: dict[str, bytes]) -> dict:
@@ -447,7 +460,10 @@ def self_test_windows_archive(repo_root: Path) -> None:
         for name in sorted(f"{program}.exe" for program in PROGRAMS):
             records.append(_audit.audit_windows_pe(_stage_file(name, files[name]), name,
                                                    is_dll=False, source_root=None))
-        return {"platform": platform, "programs": records, "extra": []}
+        dll = _audit.audit_windows_pe(
+            _stage_file(WINDOWS_WINSCARD_ARTIFACT, files[WINDOWS_WINSCARD_ARTIFACT]),
+            WINDOWS_WINSCARD_ARTIFACT, is_dll=True, source_root=None)
+        return {"platform": platform, "programs": records, "extra": [dll]}
 
     import atexit
     scratch = Path(tempfile.mkdtemp(prefix="px4-windows-selftest-"))
@@ -460,7 +476,8 @@ def self_test_windows_archive(repo_root: Path) -> None:
 
     def build(directory: Path, files: dict[str, bytes], evidence: dict,
               *, manifest_files: dict | None = None, checksum_lines: list[str] | None = None,
-              zip_writer=None, notice_text: str | None = None) -> Path:
+              zip_writer=None, notice_text: str | None = None,
+              winscard_metadata: dict | None = None) -> Path:
         stage = directory / "stage"
         stage.mkdir(parents=True)
         for name, payload in files.items():
@@ -474,7 +491,11 @@ def self_test_windows_archive(repo_root: Path) -> None:
             "architecture": "x86_64", "embedded_libusb": {"version": "1.0.30", "linkage": "static"},
             "libusb_archive_sha256": LIBUSB_SHA256,
             "source_ref": "self-test", "programs": list(PROGRAMS), "production_only": True, "files": {},
+            "winscard": {"artifact": WINDOWS_WINSCARD_ARTIFACT, "architecture": "x86_64",
+                         "deployment": "application-local"},
         }
+        if winscard_metadata is not None:
+            manifest["winscard"] = winscard_metadata
         for path in sorted(stage.rglob("*")):
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = {
@@ -529,6 +550,74 @@ def self_test_windows_archive(repo_root: Path) -> None:
     bad_import_dir = scratch / "bad-import"
     bad_import_dir.mkdir()
     expect_rejected(build(bad_import_dir, bad_import, valid_evidence), "unexpected import DLL")
+
+    for label, dll in {
+        "wrong-dll-arch": synthetic_pe(machine=0x14C, dll=True),
+        "missing-function": synthetic_pe(dll=True, exports=WINDOWS_WINSCARD_FUNCTIONS[:-1]),
+        "decorated-export": synthetic_pe(dll=True, exports=("_SCardTransmit@28",)),
+        "pci-as-function": synthetic_pe(dll=True, exports=tuple(_audit.WINDOWS_WINSCARD_EXPORTS)),
+        "pci-as-pointer": synthetic_pe(
+            dll=True, exports=WINDOWS_WINSCARD_FUNCTIONS,
+            data_exports={name: struct.pack("<Q", 0x140001000) for name in WINDOWS_WINSCARD_PCI}),
+        "pci-wrong-length": synthetic_pe(
+            dll=True, exports=WINDOWS_WINSCARD_FUNCTIONS,
+            data_exports={name: struct.pack("<II", protocol, 16)
+                          for name, protocol in WINDOWS_WINSCARD_PCI.items()}),
+        "pci-wrong-protocol": synthetic_pe(
+            dll=True, exports=WINDOWS_WINSCARD_FUNCTIONS,
+            data_exports={name: struct.pack("<II", 1, 8) for name in WINDOWS_WINSCARD_PCI}),
+        "dll-libusb-leak": synthetic_pe(dll=True, poison=WINDOWS_LIBUSB_MARKER),
+        "dll-runtime-dependency": synthetic_pe(dll=True, imports=("libc++.dll",)),
+    }.items():
+        tampered = dict(valid_files)
+        tampered[WINDOWS_WINSCARD_ARTIFACT] = dll
+        directory = scratch / label
+        directory.mkdir()
+        expect_rejected(build(directory, tampered, valid_evidence), label)
+
+    def corrupt_exports(kind: str) -> bytes:
+        data = bytearray(valid_files[WINDOWS_WINSCARD_ARTIFACT])
+        optional = 0x40 + 24
+        export_rva = struct.unpack_from("<I", data, optional + 112)[0]
+        export_offset = 0x200 + export_rva - 0x1000
+        functions_rva = struct.unpack_from("<I", data, export_offset + 28)[0]
+        functions_offset = 0x200 + functions_rva - 0x1000
+        if kind == "forwarded-function":
+            struct.pack_into("<I", data, functions_offset, export_rva + 4)
+        elif kind == "forwarded-pci":
+            struct.pack_into("<I", data, functions_offset + len(WINDOWS_WINSCARD_FUNCTIONS) * 4,
+                             export_rva + 4)
+        elif kind == "unnamed-export":
+            struct.pack_into("<I", data, export_offset + 20, len(_audit.WINDOWS_WINSCARD_EXPORTS) + 1)
+        elif kind == "delayed-import":
+            struct.pack_into("<I", data, optional + 112 + 13 * 8, 0x1000)
+        return bytes(data)
+
+    for label in ("forwarded-function", "forwarded-pci", "unnamed-export", "delayed-import"):
+        tampered = dict(valid_files)
+        tampered[WINDOWS_WINSCARD_ARTIFACT] = corrupt_exports(label)
+        directory = scratch / label
+        directory.mkdir()
+        expect_rejected(build(directory, tampered, valid_evidence), label)
+
+    wrong_dll_manifest_dir = scratch / "wrong-dll-manifest"
+    wrong_dll_manifest_dir.mkdir()
+    expect_rejected(build(wrong_dll_manifest_dir, valid_files, valid_evidence,
+                          winscard_metadata={"artifact": WINDOWS_WINSCARD_ARTIFACT,
+                                             "architecture": "x86", "deployment": "application-local"}),
+                    "wrong WinSCard architecture metadata")
+
+    missing_dll = dict(valid_files)
+    missing_dll.pop(WINDOWS_WINSCARD_ARTIFACT)
+    missing_dll_dir = scratch / "missing-winscard"
+    missing_dll_dir.mkdir()
+    expect_rejected(build(missing_dll_dir, missing_dll, valid_evidence), "missing WinSCard DLL")
+
+    bad_dll_evidence = json.loads(json.dumps(valid_evidence))
+    bad_dll_evidence["extra"][0]["pci_data"]["g_rgSCardT1Pci"]["length"] = 16
+    bad_dll_evidence_dir = scratch / "bad-dll-evidence"
+    bad_dll_evidence_dir.mkdir()
+    expect_rejected(build(bad_dll_evidence_dir, valid_files, bad_dll_evidence), "tampered PCI evidence")
 
     shipped_dll = dict(valid_files)
     shipped_dll[WINDOWS_LIBUSB_DLL] = synthetic_pe(imports=("KERNEL32.dll",),
@@ -676,7 +765,7 @@ def main() -> int:
         self_test_windows_archive(args.repo_root.resolve())
         print("libusb packaging self-test: directory accepted, synthetic SHA mismatch rejected")
         print("Android dependency notice and archive audit self-test: PASS")
-        print("Windows Phase 1 deterministic zip and archive audit self-test: PASS")
+        print("Windows deterministic zip, WinSCard ABI, and archive audit self-test: PASS")
         return 0
     for required in (args.platform, args.version, args.output_dir):
         if required is None:
@@ -712,6 +801,10 @@ def main() -> int:
                 (stage / f"{program}.exe").chmod(0o755)
             if (binary_root / WINDOWS_LIBUSB_DLL).exists():
                 fail(f"Windows build directory still contains {WINDOWS_LIBUSB_DLL}")
+            copy_regular(binary_root / WINDOWS_WINSCARD_ARTIFACT, stage / WINDOWS_WINSCARD_ARTIFACT)
+            (stage / WINDOWS_WINSCARD_ARTIFACT).chmod(0o644)
+            copy_regular(args.repo_root / WINDOWS_WINSCARD_DOCUMENT, stage / WINDOWS_WINSCARD_DOCUMENT)
+            (stage / WINDOWS_WINSCARD_DOCUMENT).chmod(0o644)
             copy_windows_toolchain_licenses(args.repo_root.resolve(), stage)
         else:
             for program in ("px4d", "px4-ts", "px4ctl"):
@@ -736,7 +829,7 @@ def main() -> int:
             copy_tree(args.ifd_bundle.resolve(), stage / "ifd" / "px4-userland-ifd.bundle")
         elif args.platform == WINDOWS_PLATFORM:
             if not args.libusb_source_archive:
-                fail("Windows Phase 1 requires --libusb-source-archive")
+                fail("Windows requires --libusb-source-archive")
             verify_pinned_libusb(args.libusb_source_archive.resolve())
         else:
             if not args.libusb_source_archive or not args.ndk_root or not args.link_map_dir:
@@ -792,6 +885,8 @@ def main() -> int:
         }
         if args.platform == WINDOWS_PLATFORM:
             manifest["libusb_archive_sha256"] = LIBUSB_SHA256
+            manifest["winscard"] = {"artifact": WINDOWS_WINSCARD_ARTIFACT,
+                                   "architecture": "x86_64", "deployment": "application-local"}
         for path in sorted(stage.rglob("*")):
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = {"size": path.stat().st_size, "sha256": sha256(path)}

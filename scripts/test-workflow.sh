@@ -43,6 +43,22 @@ fi
 printf '%s\n' "$release_candidate_block" | grep -F 'audit-artifact.sh --platform windows-x86_64' >/dev/null
 grep -F 'name: Corresponding-source Windows static relink proof' "$workflow" >/dev/null
 grep -F 'scripts/test-windows-static-relink.sh' "$workflow" >/dev/null
+grep -F -- '--baseline-winscard' "$workflow" >/dev/null
+grep -F 'WinSCard.dll changed when only libusb source was modified' "$root/scripts/test-windows-static-relink.sh" >/dev/null
+grep -F 'px4_windows_winscard_import_tests.exe' "$workflow" >/dev/null
+grep -F 'Verify Microsoft SDK code and DATA imports against the release DLL' "$workflow" >/dev/null
+grep -F ' /link winscard.lib' "$workflow" >/dev/null
+grep -F 'WaitForExit(90000)' "$workflow" >/dev/null
+grep -F 'RedirectStandardOutput' "$workflow" >/dev/null
+# shellcheck disable=SC2016
+grep -F 'missing WinSCard $required test fixture' "$workflow" >/dev/null
+grep -F 'WinSCard.dll' "$root/scripts/build-windows.sh" >/dev/null
+grep -F -- '--target px4d px4-ts px4ctl px4_winscard' "$root/scripts/build-windows.sh" >/dev/null
+grep -F 'WINDOWS_WINSCARD_ARTIFACT = "winscard/WinSCard.dll"' "$root/scripts/audit-artifact.py" >/dev/null
+if grep -E 'platform: windows-(i686|x86)$|rc-windows-(i686|x86)$' "$workflow" >/dev/null; then
+    printf '%s\n' 'Windows release must remain a single x64 archive' >&2
+    exit 1
+fi
 grep -F -- '--enable-static --disable-shared' "$root/scripts/build-windows.sh" >/dev/null
 grep -F -- '--libusb-source-dir' "$root/scripts/build-windows.sh" >/dev/null
 grep -F 'imports {WINDOWS_LIBUSB_DLL}; libusb is statically linked' "$root/scripts/audit-artifact.py" >/dev/null

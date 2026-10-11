@@ -70,12 +70,23 @@ LINUX_MDEV = {
 PROGRAMS = ("px4d", "px4-ts", "px4ctl")
 TERMUX_LAUNCHER = "px4-termux"
 
-# Windows Phase 1 PE contract: ABI, static libusb marker, permitted import
+# Windows PE contract: ABI, static libusb marker, permitted import
 # closure, and the exact zip member allowlist. libusb-1.0.dll is not shipped.
 WINDOWS_PLATFORM = "windows-x86_64"
 WINDOWS_LIBUSB_DLL = "libusb-1.0.dll"
 WINDOWS_LIBUSB_MARKER = b"https://libusb.info"
 WINDOWS_PROGRAM_ARTIFACTS = tuple(f"{program}.exe" for program in PROGRAMS)
+WINDOWS_WINSCARD_ARTIFACT = "winscard/WinSCard.dll"
+WINDOWS_WINSCARD_DOCUMENT = "docs/platforms/windows-winscard.md"
+# Match the public Windows SDK ABI, including PCI structures exported as data.
+WINDOWS_WINSCARD_FUNCTIONS = (
+    "SCardEstablishContext", "SCardReleaseContext", "SCardListReadersA",
+    "SCardListReadersW", "SCardConnectA", "SCardConnectW", "SCardDisconnect",
+    "SCardTransmit", "SCardIsValidContext", "SCardFreeMemory", "SCardStatusW",
+    "SCardGetStatusChangeW",
+)
+WINDOWS_WINSCARD_PCI = {"g_rgSCardT1Pci": 2}
+WINDOWS_WINSCARD_EXPORTS = frozenset(WINDOWS_WINSCARD_FUNCTIONS) | set(WINDOWS_WINSCARD_PCI)
 IMAGE_FILE_MACHINE_AMD64 = 0x8664
 IMAGE_FILE_DLL = 0x2000
 PE32_PLUS_MAGIC = 0x20B
@@ -104,6 +115,7 @@ WINDOWS_TOOLCHAIN_LICENSE_SHA256 = {
 WINDOWS_TOOLCHAIN_LICENSE_MEMBERS = frozenset(WINDOWS_TOOLCHAIN_LICENSE_SHA256)
 WINDOWS_TOOLCHAIN_LICENSE_NOTICE = ",".join(sorted(WINDOWS_TOOLCHAIN_LICENSE_MEMBERS))
 WINDOWS_ARCHIVE_MEMBERS = (set(COMMON) | set(WINDOWS_PROGRAM_ARTIFACTS)
+                           | {WINDOWS_WINSCARD_ARTIFACT, WINDOWS_WINSCARD_DOCUMENT}
                            | set(WINDOWS_TOOLCHAIN_LICENSE_MEMBERS))
 DARWIN_IFD_ARTIFACT = "ifd/px4-userland-ifd.bundle/Contents/MacOS/libpx4-userland-ifd.dylib"
 IFD_EXPORTS = (
@@ -131,7 +143,7 @@ SOURCE_FORBIDDEN = re.compile(
     r"|(?:\.o$|\.a$|\.so(?:\.|$)|\.dylib$|\.apk$|\.ko$|\.sys$|\.inf$|\.dll$|\.exe$|\.bin$|\.py[co]$|\.pyd$)"
     r"|(?:px4-ts-probe|px4-.*-probe)", re.IGNORECASE
 )
-# Windows Phase 1 source lives only in the narrow adapter/test/build/doc paths.
+# Windows source lives only in the narrow adapter/test/build/doc paths.
 # Any other windows/win32-segment member is legacy or vendor material and is
 # rejected, so this is not a blanket allow for old Windows trees.
 SOURCE_WINDOWS_TOKEN = re.compile(r"(^|/)(?:windows|win32)(?:/|$)", re.IGNORECASE)
@@ -156,6 +168,18 @@ WINDOWS_SOURCE_REQUIRED = {
     "repository/userland/tests/windows_platform_tests.cpp",
     "repository/userland/tests/windows_worker_tests_main.cpp",
     "repository/userland/include/px4/windows_tuner_nonce.h",
+}
+WINDOWS_WINSCARD_SOURCE_REQUIRED = {
+    "repository/CMakeLists.txt",
+    "repository/" + WINDOWS_WINSCARD_DOCUMENT,
+    "repository/scripts/px4-winscard.def",
+    "repository/userland/src/windows/winscard_card_client.h",
+    "repository/userland/src/windows/winscard_card_client.cpp",
+    "repository/userland/src/windows/winscard_native.h",
+    "repository/userland/src/windows/winscard_proxy.cpp",
+    "repository/userland/tests/windows_winscard_client_tests.cpp",
+    "repository/userland/tests/windows_winscard_proxy_tests.cpp",
+    "repository/userland/tests/windows_winscard_import_tests.cpp",
 }
 
 
@@ -235,6 +259,8 @@ def parse_pe(data: bytes) -> dict:
     magic = _pe_u16(data, optional_offset)
     dll_characteristics = _pe_u16(data, optional_offset + 70)
     number_of_directories = _pe_u32(data, optional_offset + 108) if magic == PE32_PLUS_MAGIC else 0
+    if magic == PE32_PLUS_MAGIC and 112 + number_of_directories * 8 > optional_size:
+        fail("PE data directories exceed the optional header")
     sections = []
     section_offset = optional_offset + optional_size
     for index in range(section_count):
@@ -244,30 +270,39 @@ def parse_pe(data: bytes) -> dict:
         sections.append((
             _pe_u32(data, base + 12), _pe_u32(data, base + 8),
             _pe_u32(data, base + 16), _pe_u32(data, base + 20),
+            _pe_u32(data, base + 36),
         ))
 
     def rva_to_offset(rva: int) -> int | None:
-        for virtual_address, virtual_size, raw_size, raw_pointer in sections:
-            span = max(virtual_size, raw_size)
-            if virtual_address <= rva < virtual_address + span:
-                return raw_pointer + (rva - virtual_address)
+        for virtual_address, _, raw_size, raw_pointer, _ in sections:
+            if virtual_address <= rva < virtual_address + raw_size:
+                offset = raw_pointer + (rva - virtual_address)
+                return offset if offset < len(data) else None
         return None
 
     imports = []
     exports = []
+    export_details = {}
     directories = optional_offset + 112
     if magic == PE32_PLUS_MAGIC and number_of_directories >= 1:
         export_rva = _pe_u32(data, directories)
         if export_rva:
-            exports = _pe_exports(data, export_rva, rva_to_offset)
+            export_size = _pe_u32(data, directories + 4)
+            export_details = _pe_exports(data, export_rva, export_size, rva_to_offset, sections)
+            exports = list(export_details)
     if magic == PE32_PLUS_MAGIC and number_of_directories >= 2:
         import_rva = _pe_u32(data, directories + 8)
         if import_rva:
             imports = _pe_imports(data, import_rva, rva_to_offset)
+    # Release binaries do not use delayed imports. Reject that second import
+    # surface instead of silently treating it as an empty dependency closure.
+    if magic == PE32_PLUS_MAGIC and number_of_directories > 13:
+        if _pe_u32(data, directories + 13 * 8):
+            fail("PE delayed imports are not permitted")
     return {
         "machine": machine, "magic": magic, "timestamp": timestamp,
         "characteristics": characteristics, "dll_characteristics": dll_characteristics,
-        "imports": imports, "exports": exports,
+        "imports": imports, "exports": exports, "export_details": export_details,
     }
 
 
@@ -304,18 +339,27 @@ def _pe_imports(data: bytes, import_rva: int, rva_to_offset) -> list[str]:
     return names
 
 
-def _pe_exports(data: bytes, export_rva: int, rva_to_offset) -> list[str]:
+def _pe_exports(data: bytes, export_rva: int, export_size: int,
+                rva_to_offset, sections) -> dict[str, dict]:
     offset = rva_to_offset(export_rva)
     if offset is None or offset + 40 > len(data):
         fail("PE export directory is missing or truncated")
     number_of_names = _pe_u32(data, offset + 24)
     names_rva = _pe_u32(data, offset + 32)
+    number_of_functions = _pe_u32(data, offset + 20)
+    if number_of_functions != number_of_names:
+        fail("PE export table contains unnamed or aliased exports")
+    functions_offset = rva_to_offset(_pe_u32(data, offset + 28))
+    ordinals_offset = rva_to_offset(_pe_u32(data, offset + 36))
     if number_of_names == 0 or names_rva == 0:
-        return []
+        return {}
+    if functions_offset is None or ordinals_offset is None:
+        fail("PE export function/ordinal table RVA is not mappable")
     names_offset = rva_to_offset(names_rva)
     if names_offset is None:
         fail("PE export name table RVA is not mappable")
-    names = []
+    names = {}
+    ordinals = set()
     for index in range(number_of_names):
         entry = names_offset + index * 4
         if entry + 4 > len(data):
@@ -323,7 +367,29 @@ def _pe_exports(data: bytes, export_rva: int, rva_to_offset) -> list[str]:
         name_offset = rva_to_offset(_pe_u32(data, entry))
         if name_offset is None:
             fail("PE export name RVA is not mappable")
-        names.append(_pe_cstring(data, name_offset))
+        name = _pe_cstring(data, name_offset)
+        if name in names:
+            fail("duplicate PE export name")
+        ordinal = _pe_u16(data, ordinals_offset + index * 2)
+        if ordinal >= number_of_functions:
+            fail("PE export ordinal is outside the function table")
+        if ordinal in ordinals:
+            fail("PE export ordinal is aliased")
+        ordinals.add(ordinal)
+        symbol_rva = _pe_u32(data, functions_offset + ordinal * 4)
+        symbol_offset = rva_to_offset(symbol_rva)
+        if not symbol_rva or symbol_offset is None:
+            fail("PE export target RVA is not mappable")
+        section = next((item for item in sections
+                        if item[0] <= symbol_rva < item[0] + item[2]), None)
+        assert section is not None
+        available = min(8, section[0] + section[2] - symbol_rva, len(data) - symbol_offset)
+        names[name] = {
+            "forwarded": export_rva <= symbol_rva < export_rva + export_size,
+            "executable": bool(section[4] & 0x20000000),
+            "readable": bool(section[4] & 0x40000000),
+            "data": data[symbol_offset:symbol_offset + available].hex(),
+        }
     return names
 
 
@@ -354,21 +420,37 @@ def audit_windows_pe(path: Path, logical_name: str, *, is_dll: bool,
     if logical_name == "px4d.exe":
         if WINDOWS_LIBUSB_MARKER not in data:
             fail(f"{logical_name} does not contain the static libusb version URL")
-    elif logical_name in WINDOWS_PROGRAM_ARTIFACTS and WINDOWS_LIBUSB_MARKER in data:
+    elif WINDOWS_LIBUSB_MARKER in data:
         fail(f"{logical_name} contains the libusb version URL without linking libusb")
     if is_dll:
         exports = sorted(set(pe["exports"]))
-        if not any(symbol.startswith("libusb_") for symbol in exports):
-            fail(f"{logical_name} does not export the libusb ABI")
+        if logical_name != WINDOWS_WINSCARD_ARTIFACT:
+            fail(f"unexpected Windows DLL: {logical_name}")
+        if set(exports) != WINDOWS_WINSCARD_EXPORTS:
+            fail(f"{logical_name} WinSCard export allowlist mismatch")
+        for symbol in WINDOWS_WINSCARD_FUNCTIONS:
+            entry = pe["export_details"][symbol]
+            if entry["forwarded"] or not entry["executable"]:
+                fail(f"{logical_name} WinSCard function is not local code: {symbol}")
+        for symbol, protocol in WINDOWS_WINSCARD_PCI.items():
+            entry = pe["export_details"][symbol]
+            expected = struct.pack("<II", protocol, 8).hex()
+            if (entry["forwarded"] or entry["executable"] or not entry["readable"] or
+                    entry["data"] != expected):
+                fail(f"{logical_name} PCI export is not the expected structure data: {symbol}")
     exports = sorted(set(pe["exports"])) if is_dll else []
     if source_root is not None:
         marker = str(source_root).encode()
         if marker and marker in data:
             fail(f"{logical_name} leaks the source/build path")
-    return {
+    record = {
         "artifact": logical_name, "format": "PE32+", "machine": "AMD64", "magic": "0x20B",
         "imports": imports, "exports": exports, "sha256": hashlib.sha256(data).hexdigest(),
     }
+    if is_dll:
+        record["pci_data"] = {name: {"protocol": protocol, "length": 8}
+                              for name, protocol in WINDOWS_WINSCARD_PCI.items()}
+    return record
 
 
 def safe_member(name: str) -> PurePosixPath:
@@ -517,6 +599,9 @@ def verify_windows_manifest(archive: Path, members: dict[str, zipfile.ZipInfo], 
         fail("manifest architecture must be x86_64 for the Windows archive")
     if manifest.get("embedded_libusb") != {"version": "1.0.30", "linkage": "static"}:
         fail("manifest libusb linkage metadata mismatch")
+    if manifest.get("winscard") != {"artifact": WINDOWS_WINSCARD_ARTIFACT,
+                                    "architecture": "x86_64", "deployment": "application-local"}:
+        fail("manifest WinSCard metadata mismatch")
     if "libusb_dll" in manifest:
         fail("manifest names a packaged libusb DLL")
     if not isinstance(manifest.get("source_ref"), str) or not manifest["source_ref"]:
@@ -577,6 +662,8 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
         "dependency.libusb.license": "LGPL-2.1-or-later",
         "dependency.toolchain": "llvm-mingw-20250910-ucrt-x86_64",
         "dependency.toolchain.licenses": WINDOWS_TOOLCHAIN_LICENSE_NOTICE,
+        "dependency.winscard.artifact": WINDOWS_WINSCARD_ARTIFACT,
+        "dependency.winscard.architecture": "x86_64",
         "corresponding-source-archive": f"px4-userland-{version}-source.tar.gz",
     }
     for key, value in required_fields.items():
@@ -587,11 +674,13 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
     source_root = args.repo_root.resolve() if getattr(args, "repo_root", None) else None
     records = {}
     with tempfile.TemporaryDirectory(prefix="px4-windows-audit-") as temporary:
-        for name in WINDOWS_PROGRAM_ARTIFACTS:
+        for name in (*WINDOWS_PROGRAM_ARTIFACTS, WINDOWS_WINSCARD_ARTIFACT):
             path = Path(temporary) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(read_zip_file(archive, name))
-            records[name] = audit_windows_pe(path, name, is_dll=False, source_root=source_root)
-    for name in WINDOWS_PROGRAM_ARTIFACTS:
+            records[name] = audit_windows_pe(path, name, is_dll=name == WINDOWS_WINSCARD_ARTIFACT,
+                                             source_root=source_root)
+    for name in (*WINDOWS_PROGRAM_ARTIFACTS, WINDOWS_WINSCARD_ARTIFACT):
         if members[name].external_attr >> 16 & 0o777 not in (0o755, 0o644):
             fail(f"Windows archive program has an unexpected mode: {name}")
     try:
@@ -617,14 +706,13 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
     if set(program_names) != set(WINDOWS_PROGRAM_ARTIFACTS) or len(set(program_names)) != len(PROGRAMS):
         fail("Windows binary evidence must contain each executable exactly once")
     extra = evidence.get("extra")
-    if not isinstance(extra, list) or extra:
-        fail("Windows binary evidence must not contain extra artifacts")
-    for record in programs:
+    if (not isinstance(extra, list) or len(extra) != 1 or not isinstance(extra[0], dict) or
+            extra[0].get("artifact") != WINDOWS_WINSCARD_ARTIFACT):
+        fail("Windows binary evidence must contain exactly the WinSCard DLL")
+    for record in programs + extra:
         name = record["artifact"]
-        if record.get("sha256") != records[name]["sha256"]:
-            fail(f"Windows binary evidence checksum mismatch: {name}")
-        if sorted(record.get("imports", [])) != records[name]["imports"]:
-            fail(f"Windows binary evidence import mismatch: {name}")
+        if record != records[name]:
+            fail(f"Windows binary evidence record mismatch: {name}")
     manifest = verify_windows_manifest(archive, members, version)
     verify_windows_checksums(archive, members)
     return {"archive": str(archive), "platform": WINDOWS_PLATFORM,
@@ -632,6 +720,7 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
 
 
 def synthetic_pe(*, imports: tuple[str, ...] = (), exports: tuple[str, ...] = (),
+                 data_exports: dict[str, bytes] | None = None,
                  machine: int = IMAGE_FILE_MACHINE_AMD64, magic: int = PE32_PLUS_MAGIC,
                  timestamp: int = 0, dll: bool = False,
                  dll_characteristics: int = (IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE |
@@ -655,20 +744,39 @@ def synthetic_pe(*, imports: tuple[str, ...] = (), exports: tuple[str, ...] = ()
         struct.pack_into("<I", content, descriptors + index * 20 + 12, rva)
     import_rva = section_rva + descriptors if imports else 0
     export_rva = 0
-    if exports:
+    data_exports = data_exports or {}
+    all_exports = tuple(exports) + tuple(data_exports)
+    code_rva = 0x2000
+    if all_exports:
         align4()
         export_dir = len(content)
         content.extend(b"\0" * 40)
+        functions_table = len(content)
+        content.extend(b"\0" * (4 * len(all_exports)))
         names_table = len(content)
-        content.extend(b"\0" * (4 * len(exports)))
+        content.extend(b"\0" * (4 * len(all_exports)))
+        ordinals_table = len(content)
+        content.extend(b"\0" * (2 * len(all_exports)))
         export_name_rvas = []
-        for name in exports:
+        for name in all_exports:
             export_name_rvas.append(section_rva + len(content))
             content.extend(name.encode("ascii") + b"\0")
-        struct.pack_into("<I", content, export_dir + 24, len(exports))
+        struct.pack_into("<I", content, export_dir + 20, len(all_exports))
+        struct.pack_into("<I", content, export_dir + 24, len(all_exports))
+        struct.pack_into("<I", content, export_dir + 28, section_rva + functions_table)
         struct.pack_into("<I", content, export_dir + 32, section_rva + names_table)
+        struct.pack_into("<I", content, export_dir + 36, section_rva + ordinals_table)
         for index, rva in enumerate(export_name_rvas):
             struct.pack_into("<I", content, names_table + index * 4, rva)
+            struct.pack_into("<H", content, ordinals_table + index * 2, index)
+            name = all_exports[index]
+            if name in data_exports:
+                align4()
+                target = section_rva + len(content)
+                content.extend(data_exports[name])
+            else:
+                target = code_rva + index
+            struct.pack_into("<I", content, functions_table + index * 4, target)
         export_rva = section_rva + export_dir
     content.extend(poison)
     section_size = len(content)
@@ -678,12 +786,13 @@ def synthetic_pe(*, imports: tuple[str, ...] = (), exports: tuple[str, ...] = ()
     optional_offset = pe_offset + 24
     section_header_offset = optional_offset + optional_size
     raw_pointer = 0x200
-    image = bytearray(raw_pointer + ((section_size + 0x1FF) & ~0x1FF))
+    code_pointer = raw_pointer + ((section_size + 0x1FF) & ~0x1FF)
+    image = bytearray(code_pointer + 0x200)
     image[0:2] = b"MZ"
     struct.pack_into("<I", image, 0x3C, pe_offset)
     image[pe_offset:pe_offset + 4] = b"PE\0\0"
     characteristics = 0x22 | (IMAGE_FILE_DLL if dll else 0)
-    struct.pack_into("<HHIIIHH", image, pe_offset + 4, machine, 1, timestamp, 0, 0,
+    struct.pack_into("<HHIIIHH", image, pe_offset + 4, machine, 2, timestamp, 0, 0,
                      optional_size, characteristics)
     struct.pack_into("<H", image, optional_offset, magic)
     struct.pack_into("<I", image, optional_offset + 16, section_rva)
@@ -699,10 +808,16 @@ def synthetic_pe(*, imports: tuple[str, ...] = (), exports: tuple[str, ...] = ()
         struct.pack_into("<II", image, directories, export_rva, 40)
     if import_rva:
         struct.pack_into("<II", image, directories + 8, import_rva, 20 * (len(imports) + 1))
-    image[section_header_offset:section_header_offset + 8] = b".text\0\0\0"
+    image[section_header_offset:section_header_offset + 8] = b".rdata\0\0"
     struct.pack_into("<IIII", image, section_header_offset + 8, section_size, section_rva,
                      section_size, raw_pointer)
+    struct.pack_into("<I", image, section_header_offset + 36, 0x40000040)
+    code_header = section_header_offset + 40
+    image[code_header:code_header + 8] = b".text\0\0\0"
+    struct.pack_into("<IIII", image, code_header + 8, 0x200, code_rva, 0x200, code_pointer)
+    struct.pack_into("<I", image, code_header + 36, 0x60000020)
     image[raw_pointer:raw_pointer + section_size] = content
+    image[code_pointer:code_pointer + 0x200] = b"\xc3" * 0x200
     return bytes(image)
 
 
@@ -1196,7 +1311,11 @@ def audit_binaries(args: argparse.Namespace) -> dict:
         evidence["sha256"] = sha256(path)
         result["programs"].append(evidence)
 
-    if args.platform.startswith("linux-"):
+    if args.platform == WINDOWS_PLATFORM:
+        result["extra"].append(audit_windows_pe(
+            build / WINDOWS_WINSCARD_ARTIFACT, WINDOWS_WINSCARD_ARTIFACT,
+            is_dll=True, source_root=args.repo_root.resolve()))
+    elif args.platform.startswith("linux-"):
         if not args.ifd_library:
             fail("--ifd-library is required for Linux binary audit")
         path = args.ifd_library.resolve()
@@ -1378,9 +1497,11 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
         "repository/packaging/REBUILD.md.in",
     }
     if any(name.startswith("repository/userland/src/windows/") for name in members):
-        # A committed Windows Phase 1 tree must ship the complete adapter,
+        # A committed Windows tree must ship the complete adapter,
         # test, build script, and header coverage; a partial tree is rejected.
         required |= WINDOWS_SOURCE_REQUIRED
+    if any("winscard" in name.lower() for name in members):
+        required |= WINDOWS_WINSCARD_SOURCE_REQUIRED
     if not required.issubset(members):
         fail(f"source archive is missing: {sorted(required-set(members))}")
     for name in members:

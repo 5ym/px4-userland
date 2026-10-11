@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# Offline Windows Phase 1 packaging/audit tests: synthetic PE/zip envelope
+# Offline Windows packaging/audit tests: synthetic PE/zip envelope
 # rejection, deterministic zip, and corresponding-source Windows coverage.
 set -eu
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -12,6 +12,29 @@ shellcheck "$script_dir/build-windows.sh" "$script_dir/test-windows-static-relin
 python3 -m py_compile "$script_dir/audit-artifact.py" "$script_dir/package-artifact.py" "$script_dir/package-source.py"
 python3 "$script_dir/audit-artifact.py" --self-test >/dev/null
 python3 "$script_dir/package-artifact.py" --self-test >/dev/null
+python3 - "$root" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("audit", root / "scripts/audit-artifact.py")
+audit = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(audit)
+exports = {}
+for line in (root / "scripts/px4-winscard.def").read_text().splitlines():
+    parts = line.strip().split()
+    if not parts or parts[0] in ("LIBRARY", "EXPORTS"):
+        continue
+    if parts[0] in exports or len(parts) > 2 or (len(parts) == 2 and parts[1] != "DATA"):
+        raise SystemExit("WinSCard export map must contain unique named code/DATA exports without ordinals")
+    exports[parts[0]] = parts[1:]
+expected = {name: [] for name in audit.WINDOWS_WINSCARD_FUNCTIONS}
+expected.update({name: ["DATA"] for name in audit.WINDOWS_WINSCARD_PCI})
+if exports != expected:
+    raise SystemExit("WinSCard export map and package audit contract differ")
+print("WinSCard export map matches the named code/DATA audit contract")
+PY
 
 libusb_archive=${PX4_LIBUSB_1_0_30_ARCHIVE:-}
 if [ -z "$libusb_archive" ]; then
@@ -46,11 +69,21 @@ REQUIRED = {
     "scripts/test-static-relink.sh": "#!/bin/sh\n",
 }
 WINDOWS = {
+    "CMakeLists.txt": "# build\n",
+    "docs/platforms/windows-winscard.md": "WinSCard placement and limits\n",
+    "scripts/px4-winscard.def": "EXPORTS\n",
     "scripts/build-windows.sh": "#!/bin/sh\n",
     "scripts/test-windows-static-relink.sh": "#!/bin/sh\n",
     "userland/src/windows/windows_ipc.cpp": "// ipc\n",
     "userland/src/windows/windows_sleep.cpp": "// sleep\n",
     "userland/src/windows/windows_tuner_nonce.cpp": "// nonce\n",
+    "userland/src/windows/winscard_card_client.h": "// card client header\n",
+    "userland/src/windows/winscard_card_client.cpp": "// card client\n",
+    "userland/src/windows/winscard_native.h": "// native API\n",
+    "userland/src/windows/winscard_proxy.cpp": "// WinSCard proxy\n",
+    "userland/tests/windows_winscard_client_tests.cpp": "// client tests\n",
+    "userland/tests/windows_winscard_proxy_tests.cpp": "// proxy tests\n",
+    "userland/tests/windows_winscard_import_tests.cpp": "// import tests\n",
     "userland/tools/px4_ts_windows.cpp": "// ts\n",
     "userland/tools/px4_windows_args.h": "// args\n",
     "userland/tests/windows_platform_tests.cpp": "// tests\n",
@@ -100,6 +133,14 @@ audit = subprocess.run(
 if audit.returncode != 0:
     raise SystemExit(f"valid Windows source archive failed audit: {audit.stdout}")
 print("valid Windows corresponding-source archive accepted")
+
+for index, missing in enumerate(name for name in WINDOWS if "winscard" in name.lower()):
+    incomplete = dict(WINDOWS)
+    incomplete.pop(missing)
+    repo = make_repo(f"incomplete-winscard-{index}", incomplete)
+    if package(repo, test_root / f"incomplete-winscard-out-{index}").returncode == 0:
+        raise SystemExit(f"WinSCard source archive without {missing} was accepted")
+print("incomplete WinSCard implementation, export map, and import-test source rejected")
 
 partial = {"userland/src/windows/windows_ipc.cpp": "// ipc\n"}
 partial_repo = make_repo("partial", partial)

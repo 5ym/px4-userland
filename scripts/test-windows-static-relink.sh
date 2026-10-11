@@ -6,6 +6,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 archive=
 baseline=
+baseline_winscard=
 cache=
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -19,13 +20,18 @@ while [ "$#" -gt 0 ]; do
         baseline=$2
         shift 2
         ;;
+    --baseline-winscard)
+        [ "$#" -ge 2 ] || exit 2
+        baseline_winscard=$2
+        shift 2
+        ;;
     --cache)
         [ "$#" -ge 2 ] || exit 2
         cache=$2
         shift 2
         ;;
     --help)
-        printf '%s\n' "usage: $0 --libusb-source-archive FILE --baseline-px4d FILE [--cache DIR]"
+        printf '%s\n' "usage: $0 --libusb-source-archive FILE --baseline-px4d FILE [--baseline-winscard FILE] [--cache DIR]"
         exit 0
         ;;
     *)
@@ -36,6 +42,10 @@ while [ "$#" -gt 0 ]; do
 done
 [ -f "$archive" ] || { printf '%s\n' '--libusb-source-archive is required' >&2; exit 2; }
 [ -f "$baseline" ] || { printf '%s\n' '--baseline-px4d is required' >&2; exit 2; }
+if [ -n "$baseline_winscard" ] && [ ! -f "$baseline_winscard" ]; then
+    printf '%s\n' '--baseline-winscard must name a file' >&2
+    exit 2
+fi
 command -v python3 >/dev/null || { printf '%s\n' 'python3 is required' >&2; exit 1; }
 command -v strings >/dev/null || { printf '%s\n' 'strings is required' >&2; exit 1; }
 work=$(mktemp -d /tmp/px4-windows-static-relink.XXXXXX)
@@ -83,5 +93,12 @@ fi
 if ! strings "$baseline" | grep -F 'https://libusb.info' >/dev/null; then
     printf '%s\n' 'baseline px4d.exe does not contain the static libusb version URL' >&2
     exit 1
+fi
+if [ -n "$baseline_winscard" ]; then
+    cmp "$baseline_winscard" "$work/modified/winscard/WinSCard.dll" || {
+        printf '%s\n' 'WinSCard.dll changed when only libusb source was modified' >&2
+        exit 1
+    }
+    printf '%s\n' 'WinSCard.dll is byte-identical after the libusb-only source change: PASS'
 fi
 printf '%s\n' 'Windows static libusb relink incorporated modified source: PASS'

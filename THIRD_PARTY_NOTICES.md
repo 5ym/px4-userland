@@ -86,15 +86,16 @@ route apply.
 Primary PC/SC license reference: [pcsc-lite `COPYING`](https://github.com/LudovicRousseau/PCSC/blob/master/COPYING).
 The exact host package versions remain deployment-specific system inputs and are not copied into the native archives.
 
-## Windows Phase 1 archive
+## Windows archive
 
-The Windows archive is a Phase 1 x86_64 UCRT build for `px4d.exe`, `px4-ts.exe`, and `px4ctl.exe`.
+The single Windows archive contains x86_64 UCRT builds of `px4d.exe`, `px4-ts.exe`, `px4ctl.exe`, and
+the application-local `winscard/WinSCard.dll`. No x86 or native ARM64 DLL is included.
 It is produced with the pinned, checksum-verified llvm-mingw toolchain. `px4d.exe` statically includes the
-same-toolchain libusb 1.0.30 under LGPL-2.1-or-later; `px4-ts.exe` and `px4ctl.exe` do not link libusb. The archive
-includes the exact `libusb/COPYING` and does not include `libusb-1.0.dll`. The executables dynamically load Windows
-system libraries only, including the UCRT and the WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb
+same-toolchain libusb 1.0.30 under LGPL-2.1-or-later; `px4-ts.exe`, `px4ctl.exe`, and `WinSCard.dll` do not link libusb. The archive
+includes the exact `libusb/COPYING` and does not include `libusb-1.0.dll`. The binaries dynamically load Windows
+system libraries only, including the real system WinSCard library for external readers, the UCRT, and the WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb
 loads at runtime. The C++/unwinder (`libc++`/`libc++abi`/`libunwind`), `winpthreads`, `winstorecompat`, and MinGW-w64
-runtime portions are statically linked into the executables.
+runtime portions are statically linked into the executables and the WinSCard DLL.
 
 Because those runtimes are statically linked, the archive ships the exact narrow toolchain license texts under
 `toolchain/`, taken from the same pinned, checksum-verified toolchain archive and audited against fixed SHA-256 values:
@@ -107,7 +108,9 @@ Because those runtimes are statically linked, the archive ships the exact narrow
 
 Only these narrow license files are shipped; no compiler binary or toolchain source bulk is vendored into the
 repository or the archive. The prominent `DEPENDENCY-NOTICE.txt` names the toolchain and the exact license paths.
-The archive does not include WinSCard DLLs, Microsoft PC/SC IFD registration, kernel drivers, or WinUSB INF files.
+The project-built WinSCard DLL is covered by this repository's GPL-2.0-only license. It is an application-local
+compatibility adapter; the archive does not redistribute Microsoft's system WinSCard DLL, install or replace
+anything in System32, or include Microsoft PC/SC IFD registration, kernel drivers, or WinUSB INF files.
 The source of the statically linked runtime materials is the pinned toolchain archive recorded in the build script
 and in SPEC 7.5.
 
