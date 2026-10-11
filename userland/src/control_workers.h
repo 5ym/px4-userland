@@ -55,6 +55,7 @@ enum class ControlWorkerOperation : std::uint8_t {
     tuner_status,
     tuner_shutdown,
     card_status,
+    card_handle_status,
     card_status_combined,
     card_presence,
     card_connect,
@@ -91,6 +92,7 @@ struct ControlWorkerTask final {
     std::uint64_t lease_id = 0U;
     std::uint64_t card_handle = 0U;
     ShareMode share_mode = ShareMode::shared;
+    bool card_generation_bound = false;
     Disposition disposition = Disposition::leave;
     TuneRequestPayload tune{};
     std::array<std::uint8_t, kMaxCardPayload> apdu{};

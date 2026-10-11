@@ -102,7 +102,8 @@ All commands below run from this archive root (the directory containing `reposit
 `scripts/build-windows.sh` verifies and extracts the pinned toolchain and libusb source archives into a private
 temporary work directory that it removes on exit. Its `--cache` directory holds only the downloaded archives,
 not an extracted toolchain tree. Preseed the bundled, already-verified libusb archive so the production rebuild
-uses the corresponding source instead of downloading it, then cross-build the Phase 1 executables:
+uses the corresponding source instead of downloading it, then cross-build the x64 executables and
+application-local WinSCard DLL:
 
 ```sh
 mkdir -p toolchain-cache
@@ -114,8 +115,11 @@ The toolchain and libusb versions and their SHA-256 values are fixed in the scri
 narrow llvm-mingw runtime license texts under `toolchain/`; no compiler binary or toolchain source bulk is
 included.
 
-`px4d.exe` statically includes libusb 1.0.30, which remains LGPL-2.1-or-later. `px4-ts.exe` and `px4ctl.exe` do
-not link libusb. The executables still dynamically load Windows system libraries, including the UCRT and the
+`px4d.exe` statically includes libusb 1.0.30, which remains LGPL-2.1-or-later. `px4-ts.exe`, `px4ctl.exe`, and
+`winscard/WinSCard.dll` do not link libusb. The DLL is built from the same source snapshot and pinned x64
+toolchain, with statically linked C++ runtimes. It is for an x64 application's directory, not for installation
+into System32 or PC/SC IFD registration. No x86 or ARM64 DLL is included. The binaries still dynamically load
+Windows system libraries, including the system WinSCard library for external readers, the UCRT and the
 WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb loads at runtime. `libusb-1.0.dll` is not
 produced or shipped. To relink with a modified copy of the bundled source:
 
@@ -128,6 +132,6 @@ repository/scripts/build-windows.sh --output build-windows-relink \
 strings build-windows-relink/px4d.exe | grep -F 'the marker you added'
 ```
 
-`build-windows-relink/` must contain `px4d.exe`, `px4-ts.exe`, and `px4ctl.exe`, and must not contain
+`build-windows-relink/` must contain `px4d.exe`, `px4-ts.exe`, `px4ctl.exe`, and `winscard/WinSCard.dll`, and must not contain
 `libusb-1.0.dll`. The production release path accepts only the pinned, checksum-verified libusb source archive;
 local relink builds do not emit release evidence. Firmware is neither required nor present in this archive.

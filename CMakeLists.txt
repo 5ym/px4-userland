@@ -24,6 +24,7 @@ option(PX4_RELEASE_PX4D_NO_BUILD_ID
     "Omit the GNU Build ID note from the release px4d executable only" OFF)
 option(PX4_BUILD_PCSC_IFD "Build the POSIX PC/SC IFD Handler when headers are available" ON)
 option(PX4_REQUIRE_PCSC_IFD "Fail configuration when the PC/SC IFD Handler cannot be built" OFF)
+option(PX4_BUILD_WINSCARD "Build the Windows B25-compatible app-local WinSCard DLL" ON)
 set(PX4_ANDROID_NDK_ROOT_MAP "" CACHE PATH
     "Android NDK root to remove from compiler debug paths")
 set(PX4_ANDROID_LINK_MAP_DIR "" CACHE PATH
@@ -317,6 +318,31 @@ if(WIN32)
     )
     px4_enable_project_warnings(px4_userland_windows_ipc)
 
+    if(PX4_BUILD_WINSCARD)
+        # Client-only IPC: the proxy has no USB backend, daemon, or firmware code.
+        add_library(px4_winscard_client STATIC
+            userland/src/error.cpp
+            userland/src/ipc.cpp
+            userland/src/control_client.cpp
+            userland/src/windows/windows_ipc.cpp
+            userland/src/windows/winscard_card_client.cpp
+        )
+        target_include_directories(px4_winscard_client PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+        )
+        target_compile_features(px4_winscard_client PUBLIC cxx_std_17)
+        target_link_libraries(px4_winscard_client PUBLIC advapi32 bcrypt ws2_32 Threads::Threads)
+        px4_enable_project_warnings(px4_winscard_client)
+        add_library(px4_winscard SHARED
+            userland/src/windows/winscard_proxy.cpp
+            scripts/px4-winscard.def
+        )
+        target_link_libraries(px4_winscard PRIVATE px4_winscard_client)
+        set_target_properties(px4_winscard PROPERTIES PREFIX "" OUTPUT_NAME "WinSCard")
+        px4_enable_project_warnings(px4_winscard)
+    endif()
+
     add_executable(px4ctl
         userland/tools/px4ctl.cpp
         userland/tools/px4ctl_format.cpp
@@ -510,6 +536,35 @@ if(WIN32)
         target_compile_features(px4_windows_control_tests PRIVATE cxx_std_17)
         px4_enable_project_warnings(px4_windows_control_tests)
         add_test(NAME px4_windows_control_tests COMMAND px4_windows_control_tests)
+
+        if(PX4_BUILD_WINSCARD)
+            add_executable(px4_windows_winscard_client_tests
+                userland/tests/windows_winscard_client_tests.cpp)
+            target_link_libraries(px4_windows_winscard_client_tests PRIVATE px4_winscard_client)
+            add_dependencies(px4_windows_winscard_client_tests px4_winscard)
+            px4_enable_project_warnings(px4_windows_winscard_client_tests)
+            add_test(NAME px4_windows_winscard_client_tests COMMAND px4_windows_winscard_client_tests)
+            set_tests_properties(px4_windows_winscard_client_tests PROPERTIES TIMEOUT 90)
+
+            add_executable(px4_windows_winscard_proxy_tests
+                userland/tests/windows_winscard_proxy_tests.cpp
+                userland/src/windows/winscard_proxy.cpp)
+            target_compile_definitions(px4_windows_winscard_proxy_tests PRIVATE PX4_WINSCARD_TESTING=1)
+            target_link_libraries(px4_windows_winscard_proxy_tests PRIVATE px4_userland_windows_ipc)
+            target_include_directories(px4_windows_winscard_proxy_tests PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/userland/src)
+            px4_enable_project_warnings(px4_windows_winscard_proxy_tests)
+            add_test(NAME px4_windows_winscard_proxy_tests COMMAND px4_windows_winscard_proxy_tests)
+
+            # Deliberately use the SDK/toolchain import library, not our generated
+            # import library: validates ordinary WinSCard consumers and DATA ABI.
+            add_executable(px4_windows_winscard_import_tests
+                userland/tests/windows_winscard_import_tests.cpp)
+            target_link_libraries(px4_windows_winscard_import_tests PRIVATE winscard)
+            add_dependencies(px4_windows_winscard_import_tests px4_winscard)
+            px4_enable_project_warnings(px4_windows_winscard_import_tests)
+            add_test(NAME px4_windows_winscard_import_tests COMMAND px4_windows_winscard_import_tests)
+        endif()
 
         add_executable(px4_windows_stdin_tests
             userland/tests/windows_stdin_monitor_tests.cpp

@@ -637,7 +637,7 @@ jobs:
             python3 -c "import ctypes; getattr(ctypes.CDLL(\"/tmp/rc-musl-aarch64/ifd/px4-userland-ifd.so\"), \"IFDHCreateChannel\")"'
 
   windows-x86_64:
-    name: Windows x64 llvm-mingw cross-build, PE audit, and deterministic packaging
+    name: Windows x64 CLI and WinSCard cross-build, PE audit, and deterministic packaging
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -693,6 +693,7 @@ jobs:
           scripts/test-windows-static-relink.sh \
             --libusb-source-archive "$LIBUSB_ARCHIVE" \
             --baseline-px4d "$RUNNER_TEMP/win/bin-1/px4d.exe" \
+            --baseline-winscard "$RUNNER_TEMP/win/bin-1/winscard/WinSCard.dll" \
             --cache "$RUNNER_TEMP/px4-windows-toolchain"
       - name: Upload Windows candidate archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -708,7 +709,7 @@ jobs:
           if-no-files-found: error
 
   windows-native-tests:
-    name: Windows Server 2022 offline tests and release archive CLI smoke
+    name: Windows Server 2022 offline tests, WinSCard import fixture, and release archive smoke
     needs: windows-x86_64
     runs-on: windows-2022
     timeout-minutes: 30
@@ -925,13 +926,42 @@ jobs:
           $tests = Join-Path $env:RUNNER_TEMP 'win-candidate-tests'
           $suites = Get-ChildItem $tests -Filter '*_tests.exe' | Sort-Object Name
           if (-not $suites) { throw 'no Windows offline test executables were downloaded' }
+          foreach ($required in 'client', 'proxy', 'import') {
+            if (-not (Test-Path (Join-Path $tests "px4_windows_winscard_${required}_tests.exe"))) {
+              throw "missing WinSCard $required test fixture"
+            }
+          }
+          if (-not (Test-Path (Join-Path $tests 'WinSCard.dll'))) { throw 'missing test WinSCard DLL' }
           $failed = @()
           foreach ($suite in $suites) {
             Write-Host "== $($suite.Name) =="
-            & $suite.FullName
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "FAILED $($suite.Name) exit=$($LASTEXITCODE)"
-              $failed += "$($suite.Name)=$($LASTEXITCODE)"
+            if ($suite.Name -eq 'px4_windows_winscard_client_tests.exe') {
+              # A deadlock regression in the production-DLL shutdown race
+              # must fail promptly. Terminate only this spawned test process.
+              $stdout = Join-Path $tests 'winscard-client.stdout.log'
+              $stderr = Join-Path $tests 'winscard-client.stderr.log'
+              $process = Start-Process -FilePath $suite.FullName -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              try {
+                if (-not $process.WaitForExit(90000)) {
+                  Write-Host 'WinSCard client tests exceeded the 90-second timeout'
+                  if (-not $process.HasExited) { $process.Kill() }
+                  if (-not $process.WaitForExit(5000)) { throw 'timed-out test process did not terminate' }
+                  $exitCode = 124
+                } else {
+                  $exitCode = $process.ExitCode
+                }
+              } finally {
+                Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+                Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+                $process.Dispose()
+              }
+            } else {
+              & $suite.FullName
+              $exitCode = $LASTEXITCODE
+            }
+            if ($exitCode -ne 0) {
+              Write-Host "FAILED $($suite.Name) exit=$exitCode"
+              $failed += "$($suite.Name)=$exitCode"
             }
           }
           if ($failed.Count -ne 0) {
@@ -949,6 +979,34 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           & (Join-Path $extract 'px4d.exe') --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Run the SDK-linked DATA/function import fixture beside the exact
+          # DLL extracted from the audited release ZIP, not a test-build DLL.
+          $winscard = Join-Path $extract 'winscard'
+          if (-not (Test-Path (Join-Path $winscard 'WinSCard.dll'))) { throw 'archive is missing WinSCard.dll' }
+          $fixture = Join-Path $env:RUNNER_TEMP 'win-candidate-tests/px4_windows_winscard_import_tests.exe'
+          Copy-Item -LiteralPath $fixture -Destination $winscard
+          & (Join-Path $winscard 'px4_windows_winscard_import_tests.exe')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Microsoft SDK code and DATA imports against the release DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio locator is missing' }
+          $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $visualStudio) { throw 'MSVC x64 build tools are missing' }
+          $vcvars = Join-Path $visualStudio 'VC/Auxiliary/Build/vcvarsall.bat'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'userland/tests/windows_winscard_import_tests.cpp'
+          $winscard = Join-Path $env:RUNNER_TEMP 'win-candidate-extract/winscard'
+          $executable = Join-Path $winscard 'px4_windows_winscard_msvc_import_tests.exe'
+          $object = Join-Path $env:RUNNER_TEMP 'px4_windows_winscard_msvc_import_tests.obj'
+          # Use Microsoft's installed SDK winscard.lib, never the import
+          # library emitted by our DLL build. This fixture does not open cards.
+          $command = "call `"$vcvars`" x64 >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT `"$source`" /Fe:`"$executable`" /Fo:`"$object`" /link winscard.lib"
+          & $env:ComSpec /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $executable
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Clean up isolated owned LOCALAPPDATA (always)
         if: always()

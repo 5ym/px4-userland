@@ -1,9 +1,23 @@
 # px4-userland 仕様
 
-Status: Frozen v0.35 (2026-10-11)
+Status: Frozen v0.37 (2026-10-11)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+### v0.37 change record (2026-10-11)
+
+- 1、3、7.6、10.4節: Windows 11 x64へapplication-localなB25用WinSCard互換DLLを追加する。
+  EDCBのB25Decoder系、recisdb-rsのlibaribb25、TVTest/CasProcessor/logue TvCasで確認したnamed importに絞り、
+  一般WinSCard全API互換を意味しない。
+  既存の起動済みpx4dのCARD_*を利用し、外部readerはOSのWinSCardへ転送する。x86/ARM64版DLLは配布対象外。
+- CARD generation bindingをHELLO capability bit3のopt-inで追加し、新規WinSCard DLLでは必須とする。
+  bound handleは観測した抜去・再挿入をまたぐ暗黙のsession再初期化を禁止し、明示的な
+  CARD_RECONNECT/CARD_RESETだけが当該handleを現在のcardへ再束縛できる。bit3は所有handleを原子的に検証する
+  CARD_HANDLE_STATUS(0x0038)も必須とする。既存message layout/versionを変えず、
+  既存IFD/CLIの非opt-in handleでは従来の透過的復旧を維持する。旧daemonへ安全性を落とすfallbackはしない。
+- DLLのcross-build、mock IPC、SDK import試験と、実application・実cardの受入を区別する。
+  既存Phase 1の実測結果を継承できる部分と、新規DLL・card lifetimeの今回再検証を混同しない。
 
 ### v0.35 change record (2026-10-11)
 
@@ -273,11 +287,11 @@ USB通信にはlibusb-1.0だけを使用し、Q3U4の8チューナーと内蔵IC
 v0.18ではPX-W3PE4/5、PX-Q3PE4/5、PX-MLT8PE3/5、DTV02A-4TS-P、PX-M1UR、PX-S1UR、DTV03A-1TU、
 DTV02-1T1S-U、DTV02A-1T1S-Uを識別対象へ加える。12機種はhardware-unverifiedである。
 
-対象環境はLinux/glibc、Linux/musl、Android/Bionic、macOS、およびWindows 11 x64（Phase 1）とする。
+対象環境はLinux/glibc、Linux/musl、Android/Bionic、macOS、およびWindows 11 x64とする。
 ビルド成功と自動試験成功を移植性の条件とし、実機試験を行っていないOSは、
 公開時に「build-tested / hardware-unverified」と明記し、動作確認済みとは表現しない。
 WindowsはPOSIX runtimeと同一のversioned IPC wire形式と`control.sock`/`stream.sock`概念を用い、
-tunerと内蔵カードリーダーのCARD_*操作を扱う。WinSCard互換DLLはPhase 2以降とし、本版に含めない。
+tunerと内蔵カードリーダーのCARD_*操作を扱う。Phase 2の限定WinSCard DLLは7.6節の範囲だけを提供する。
 
 support matrixと実機検証経路は次のとおりとする。
 
@@ -332,8 +346,8 @@ support matrixと実機検証経路は次のとおりとする。
   本リポジトリのrelease artifactと検証gateにAPKを含めない。
 - B-CAS/ACASの暗号処理、ECM処理、TSのスクランブル解除。
 - ネットワーク越しの利用。IPCは同一ホスト内に限定する。
-- Windows向けWinSCard互換DLL、Microsoft PC/SC IFD登録、System32 WinSCardへの転送、x86（32-bit）配布物。
-  これらはPhase 2以降の対象とし、Phase 1の`px4d`／`px4-ts`／`px4ctl`とlocal IPCには含めない。
+- Windowsの一般WinSCard全API互換、Microsoft PC/SC IFD登録、x86（32-bit）/native ARM64 DLL配布物。
+  7.6節の限定API以外を必要とするapplication/decoder経路は対象外とする。
 - Windowsでのカーネルドライバ／WinUSB INF配布、kernel-mode component。WindowsのUSB accessはlibusb経由に限定する。
 
 Q3U4またはMLT5系と共通するチップを持つ他機種で偶然動作しても、対応機種一覧へ追加しない。
@@ -824,6 +838,7 @@ B-CASの実カードをQ3U4受入試験の対象とする。ACASは模擬試験�
 | `0x0035` | `CARD_TRANSMIT` | `u64 card_handle, u32 length, bytes[length]` | `u32 length, bytes[length]` |
 | `0x0036` | `BEGIN_TRANSACTION` | `u64 card_handle` | empty |
 | `0x0037` | `END_TRANSACTION` | `u64 card_handle, u8 disposition` | empty |
+| `0x0038` | `CARD_HANDLE_STATUS` | `u64 card_handle`、CARDとCARD_GENERATION_BINDING必須 | CARD_STATUSと同じlayout |
 | `0x0040` | `ATTACH_STREAM` | `u64 lease_id, u8 nonce[16]` | empty、その後serverからTS_DATA |
 | `0x8040` | `TS_DATA` | server event only | 6.3節 |
 | `0x80f0` | `DEVICE_EVENT` | server event only | generation、event kind、affected receiver/card |
@@ -835,8 +850,17 @@ B-CASの実カードをQ3U4受入試験の対象とする。ACASは模擬試験�
 - event subscriptionはHELLO capabilitiesの`EVENTS` bitを要求したconnectionだけに行う。eventはresponseの途中へ
   byte単位で割り込まず、frame単位でのみ挿入できる。
 
-capability bitはbit 0=`EVENTS`、bit 1=`CARD`、bit 2=`STREAM_STATS`とし、未知bitは無視する。
+capability bitはbit 0=`EVENTS`、bit 1=`CARD`、bit 2=`STREAM_STATS`、bit 3=`CARD_GENERATION_BINDING`とし、未知bitは無視する。
 HELLO responseのcapabilitiesはrequestとserver対応bitの積集合とする。
+`CARD_GENERATION_BINDING`を交渉したconnectionの新規CARD_CONNECT handleは、daemonが観測した
+card lossでsticky stale状態になる。stale handleのCARD_TRANSMIT/BEGIN_TRANSACTIONは、再初期化/APDUより前に
+CARD_REMOVEDで失敗する。readiness検査中にlossを検出した場合も同じとする。成功した明示CARD_RECONNECTまたは
+CARD_RESETだけがそのhandleのstale状態を解除する。stale handleのDISCONNECTはLEAVE/RESETともcleanupできるが、
+RESET指定でも交換後のcardをresetしない。capability未交渉の既存IFD/CLI handleは従来の透過的復旧を維持する。
+CARD_HANDLE_STATUSは同じserialized card laneでhandleの所有者/staleを検査し、presence検査後に再度staleを検査する。
+card lossはCARD_REMOVED、未初期化sessionはNOT_READYを返し、protocol初期化/APDU/resetを行わない。
+reader単位の既存CARD_STATUS(empty request)は変えない。bit3未交渉connectionは新opcodeを実行できない。
+この追加はopt-inであり、既存message layoutとprotocol versionは変えない。generation counterのwrapでstaleが解除されてはならない。
 可変配列は先頭に`u16 count`、可変byte列は先頭に`u32 length`を置く。ATRだけは上限33なので`u8 length`とする。
 各recordは次の固定layoutとし、field追加または意味変更はprotocol minor更新を要する。
 
@@ -991,6 +1015,61 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
 - IT930x 1ms pacingとSystemCardTimeのsleepはhigh-resolution waitable timerを用い、失敗を扱う。
   process-global timer tweakは行わない。
 - カードaccessはlibusb経由のCARD_*操作に限定し、WinSCard DLLに依存しない。
+
+### 7.6 Windows application-local WinSCard (Phase 2)
+
+- 正規配布はWindows 11 x64 application用DLL 1種とし、既存x64 daemon/CLIと同じZIPの
+  `winscard/WinSCard.dll`へ収録する。利用者は対象applicationのEXEと同じdirectoryへコピーする。
+  decoder DLLだけのdirectory、KnownDLL/preloaded module優先、特殊なloader設定での解決を保証しない。
+  native試験は実際にimportされたmodule pathを確認する。OS DLL置換、registry/IFD/service登録を行わない。
+- named exportは`SCardEstablishContext`、`SCardReleaseContext`、`SCardListReadersA/W`、
+  `SCardConnectA/W`、`SCardDisconnect`、`SCardTransmit`、`SCardIsValidContext`、`SCardFreeMemory`、
+  `SCardStatusW`、`SCardGetStatusChangeW`と`g_rgSCardT1Pci` DATAに限定する。
+  PCIはDWORD 2個（protocol=2、length=8）からなる8-byte objectであり、pointer/functionへ置き換えない。
+  ordinal import、`StatusA`、`GetAttrib`、blocking status-change/cancel、transaction API、`Reconnect`等は
+  本DLLの契約に含めない。一般PC/SC互換を表明しない。
+- B25のUSER/SYSTEM context、NULL groupのreader一覧、SHAREDまたはEXCLUSIVE/T=1接続、
+  1..4,096-byte APDU、LEAVE/RESET切断を内蔵reader向けに扱う。DIRECT、T=0-only、UNPOWER/EJECT等の
+  未実装effectを成功扱いしない。NULL outputのreader size queryは入力lengthを無視し、Aはbyte数、Wは
+  UTF-16 code unit数を返す。MULTI_SZは二重NUL終端、短いbufferは必要長を返して書き込まない。
+  APDUは呼出しごとに最大1回だけ送信し、応答buffer不足を理由に自動再送しない。
+- ListReaders A/W、StatusWのreader名/ATRはAUTOALLOCATEを扱い、context所有のbufferだけをFreeMemoryで解放する。
+  contextごとに64 allocation、計1MiBまでとし、foreign pointer/double freeを拒否し、ReleaseContextで残存分を回収する。
+  StatusWのnameはMULTI_SZ、stateはSCARD_SPECIFIC、protocolはT=1とし、optional output/size query/短いATRを扱う。
+  CONNECTの非empty ATRをcacheし、StatusではCARD_HANDLE_STATUSの原子的な所有者/stale検査を必須とする。
+  reader全体のCARD_STATUSやgeneration samplingでhandleの有効性を推測せず、stale/absence/未初期化ではlocal sessionを閉じる。
+- GetStatusChangeWはTVTest経路のtimeout=0、reader 1個、current state=UNAWARE(0)に限定する。
+  localはCARD_STATUSでpresenceをpollし、PRESENT/EMPTYとCHANGEDを返す。protocol初期化/APDU/resetを行わない。
+  ただし既存CARD_STATUSは未給電時に一時power/UART init/offを行うため、hardware side-effect-freeとは呼ばない。
+  未初期化ATRは空とし、接続済みで得たATRと混同しない。timeout=0はevent待ちをしない意味であり、IPC自体の有限待ちは発生する。
+  multi-reader/blocking/cancel/その他current-state処理を黙って成功させない。
+- daemonは利用者が別途起動する。DLLはUSBを開かず、firmware/daemonを起動しない。
+  context作成時の`PX4_WINSCARD_RUNTIME_DIR`（未設定時`LOCALAPPDATA`）をruntime parentとして使う。
+  `<root>\\px4-userland\\<instance>\\control.sock`を同一userの既存IPCで接続し、CARDとCARD_GENERATION_BINDING capability、readyなLISTを
+  検証したinstanceを`PX4 userland (<instance>)`として列挙する。instanceは既存ASCII識別子とし、
+  rootはUTF-8/UTF-16で扱うlocal drive絶対pathに限定する。必要capabilityのない旧daemonはreaderに含めず、直接接続も拒否する。
+  UNC/device/remote/alias path、reparse point、
+  他userまたは不適切なDACLを持つroot/product/instanceへ安全でないfallbackをしない。
+- local discoveryはdirectory entry 64個、全体1,500ms、各endpoint 200msの協調的deadlineを使う。
+  同期filesystem/security APIの実行時間やOS providerを含む呼出し全体のhard wall-clock上限とはしない。期限/entry上限超過は
+  部分的なPX4一覧を成功扱いしない。非ready/stale endpointは公開しない。探索失敗を永久cacheしない。
+  local設定/探索失敗時にもOS readerは独立に列挙・利用でき、利用可能なOS readerもない場合はlocal errorを返す。
+  失敗したlocal reader名を誤ってOS側へ転送しない。
+  contextは64、cardは256までとし、opaque handleを再利用しない。wire u64 handleをpointer幅へ切り詰めない。
+- 同じAPIの外部reader操作はlazyに絶対system pathからロードしたOS WinSCardへ転送する。
+  loaded moduleがproxy自身でなく、期待するOS fileと同一であることを検査する。DLL依存解決は
+  `LOAD_LIBRARY_SEARCH_SYSTEM32`を使い、DllMain中に初期化/IPCを行わない。
+  local readerを先、OS readerを後に併合し、名前衝突時はOS readerを優先する。OS service不在でも
+  local readerは利用できる。公開context/cardを所有registryで包み、未知/解放済みhandleをOSへ渡さない。
+- handle操作とReleaseContextを同期する。ReleaseContextはlocal owning connectionをcloseし、
+  native contextを一度releaseする。最大card数分の同期disconnect roundtripを行わない。
+  process exitのloader lock中にregistry/client destructorを動かさず、明示release以外の残存resourceはOSが回収する。
+  不明な転送結果、protocol不正、観測したcard lossはlocal sessionを無効化し、透過再接続/再送をしない。
+- 受入にはnative Windowsのmock IPC・ownership/race・A/W buffer・同名module解決・SDK import/DATA試験、
+  final archiveからの同一試験、および対象application/decoder/architectureを記録した実card試験が必要。
+  EDCBはdecoder実装ごとに要件が異なる。recisdb-rs/EDCB/TVTestの全versionや任意plugin、TS解除結果は未検証のまま保証しない。
+  TvCas hostの強制TerminateThreadを安全に回収できるとは保証せず、4秒CARD requestとhost側retryの累積、
+  起動/終了の期限をexact pluginで検証する。cooperative shutdownとstalled daemon試験をforced termination耐性と混同しない。
 
 ## 8. Repository end state
 
@@ -1218,13 +1297,15 @@ Linux/Android/macOSのstable配布物のplatform/architectureは次の8つのbin
 
 Windows Phase 1はx86_64の`px4-userland-<version>-windows-x86_64.zip`を追加配布物とする。`px4d.exe`は
 同一toolchainでビルドしたlibusb 1.0.30を静的リンクする。`px4-ts.exe`と`px4ctl.exe`はlibusbをリンクしない。
-ZIPは3つの実行ファイル、LICENSE、第三者notice、exact source coverageを含み、`libusb-1.0.dll`は同梱しない。
+ZIPは3つの実行ファイル、x64の`winscard/WinSCard.dll`、LICENSE、第三者notice、exact source coverageを含み、
+`libusb-1.0.dll`は同梱しない。DLLはlibusbをリンクしない。
 PE architecture、import DLL、静的libusbの版文字列、build path leak、legacy artifactを監査し、deterministic zipと
 最終archiveからのsmokeを要する。OS標準DLL（UCRT、およびlibusbが実行時にLoadLibraryするWinUSB等）は動的のままとする。
 Windows archiveのgateは、Windows IPC adapterとCLIの実装と10.3の`build-tested` evidenceに加え、
 10.5の必須短時間実機matrixのWindows行（exact candidate archiveを使用）が完了するまで未完了とする。実機確認が
-得られるまでは`hardware-unverified`と表示し、`build-tested`だけでは当該gateを完了としない。WinSCard互換DLLと
-Microsoft PC/SC IFD登録はPhase 2以降であり本gateの対象外とする。既存8 archiveの判定条件と順序は変更しない。
+得られるまでは`hardware-unverified`と表示し、`build-tested`だけでは当該gateを完了としない。
+WinSCard DLLは7.6節の新規試験対象とし、Microsoft PC/SC IFD登録は対象外のままとする。
+既存8 archiveの判定条件と順序は変更しない。
 
 各archiveは該当platformの`px4d`、`px4-ts`、`px4ctl`、利用可能なnative card adapter、GPL license、README、検証済み
 libusb 1.0.30のexact `libusb/COPYING`を含む。license textは追跡対象のpackaging materialからofflineで包装し、hashを検査する。
@@ -1414,6 +1495,9 @@ Q3U4を指定された場合は8 receiverのISDB-T/S混在、必要なstatus/APD
     sleep、console/signal、stdout）とWindows固有testを実装し、`px4d`／`px4-ts`／`px4ctl`とlocal IPCを
     クロスビルドする。winSCard DLLと実機hardware claimは含めない。各stepはoffline testまたは
     cross-buildがgreenになるまで次へ進めない。
+
+12. Windows Phase 2: 7.6節のx64 B25限定WinSCard DLL、既存CARD_* lifetime境界、mock/native import試験、
+    archive監査を追加する。applicationと実cardの受入はbuild/mock成功と別に記録する。
 
 各incrementは対応するoffline testまたは実機観測がgreenになるまで次へ進めない。
 

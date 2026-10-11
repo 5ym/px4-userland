@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Windows native control-plane round trip: a PosixControlServer with mock
 // card/tuner services accepts a PosixControlClient over the Windows AF_UNIX
-// adapter and answers a STATUS request. This exercises the shared control
+// adapter and answers STATUS and CARD_* requests, including the shared card
+// ownership/transaction contract. This exercises the shared control
 // server/worker path plus the Windows socket engine end to end. It requires
 // native AF_UNIX (Wine reports WSAEAFNOSUPPORT), so it is native-only.
 #include "px4/card_service.h"
 #include "px4/control_client.h"
 #include "px4/control_server.h"
 #include "px4/tuner_service.h"
+#include "card_client_contract_tests.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -49,7 +51,8 @@ class CardBackend final : public CardServiceBackend {
 public:
     Result<void> set_power(bool) noexcept override { return Result<void>::success(); }
     Result<void> initialize_uart() noexcept override { return Result<void>::success(); }
-    Result<bool> detect_card() noexcept override { return Result<bool>::success(true); }
+    Result<bool> detect_card() noexcept override { return Result<bool>::success(present.load()); }
+    std::atomic<bool> present{true};
 };
 
 class CardSession final : public CardProtocolSession {
@@ -212,6 +215,9 @@ bool test_control_round_trip()
             }
         }
     });
+
+    CHECK(test::run_card_client_contract(endpoint));
+    CHECK(test::run_card_generation_contract(endpoint, card_backend.present));
 
     auto client = PosixControlClient::connect(endpoint, kCapabilityCard, Timeout{4000U});
     if (!client) {

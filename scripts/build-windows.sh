@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# Cross-build the Windows x64 (Phase 1) production CLIs with a pinned
+# Cross-build the Windows x64 production CLIs and application-local WinSCard DLL with a pinned
 # llvm-mingw/UCRT toolchain. The toolchain and dependency versions and their
 # SHA-256 values are fixed here; no compiler or dependency binary is vendored
 # into the tracked tree. The PE/import audit and the deterministic zip are not
@@ -227,6 +227,8 @@ configure_build() {
         -DCMAKE_CXX_COMPILER="$toolchain_bin/x86_64-w64-mingw32-clang++" \
         -DCMAKE_RC_COMPILER="$toolchain_bin/llvm-rc" \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,-s" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-s" \
+        -DPX4_BUILD_WINSCARD=ON \
         -DPX4_BUILD_TESTS="$tests" -DPX4_BUILD_PCSC_IFD=OFF -DPX4_ENABLE_LIBUSB="$libusb" \
         -DPX4_LIBUSB_INCLUDE_DIR="$libusb_include" \
         -DPX4_LIBUSB_LIBRARY="$libusb_a" \
@@ -235,7 +237,7 @@ configure_build() {
 
 build="$work/build"
 configure_build "$build" OFF ON
-cmake --build "$build" --target px4d px4-ts px4ctl
+cmake --build "$build" --target px4d px4-ts px4ctl px4_winscard
 
 for program in px4d px4-ts px4ctl; do
     [ -f "$build/$program.exe" ] || {
@@ -246,13 +248,19 @@ done
 for program in px4d px4-ts px4ctl; do
     cp "$build/$program.exe" "$output/$program.exe"
 done
+[ -f "$build/WinSCard.dll" ] || {
+    printf '%s\n' 'expected x64 WinSCard.dll was not produced' >&2
+    exit 1
+}
+mkdir -p "$output/winscard"
+cp "$build/WinSCard.dll" "$output/winscard/WinSCard.dll"
 if [ -e "$output/libusb-1.0.dll" ]; then
     printf '%s\n' 'refusing to stage libusb-1.0.dll; libusb is statically linked' >&2
     exit 1
 fi
-for program in px4d px4-ts px4ctl; do
-    if "$objdump_tool" -p "$output/$program.exe" | grep -F 'libusb-1.0.dll' >/dev/null; then
-        printf '%s\n' "$program.exe imports libusb-1.0.dll" >&2
+for binary in px4d.exe px4-ts.exe px4ctl.exe winscard/WinSCard.dll; do
+    if "$objdump_tool" -p "$output/$binary" | grep -F 'libusb-1.0.dll' >/dev/null; then
+        printf '%s\n' "$binary imports libusb-1.0.dll" >&2
         exit 1
     fi
 done
@@ -263,9 +271,9 @@ if [ -z "$libusb_source_dir" ]; then
         printf '%s\n' 'px4d.exe does not contain the static libusb version URL' >&2
         exit 1
     fi
-    for program in px4-ts px4ctl; do
-        if strings "$output/$program.exe" | grep -F 'https://libusb.info' >/dev/null; then
-            printf '%s\n' "$program.exe contains the libusb version URL" >&2
+    for binary in px4-ts.exe px4ctl.exe winscard/WinSCard.dll; do
+        if strings "$output/$binary" | grep -F 'https://libusb.info' >/dev/null; then
+            printf '%s\n' "$binary contains the libusb version URL" >&2
             exit 1
         fi
     done
@@ -289,11 +297,31 @@ if [ -n "$test_output" ]; then
         printf '%s\n' 'Windows libusb stream policy tests were not produced' >&2
         exit 1
     }
+    for suite in client proxy import; do
+        [ -f "$test_output/px4_windows_winscard_${suite}_tests.exe" ] || {
+            printf '%s\n' "Windows WinSCard $suite tests were not produced" >&2
+            exit 1
+        }
+    done
+    # The SDK-linked fixture must resolve the application-local DLL by its
+    # real import table, including the g_rgSCardT1Pci DATA import.
+    cp "$test_build/WinSCard.dll" "$test_output/WinSCard.dll"
+    "$objdump_tool" -p "$test_output/px4_windows_winscard_import_tests.exe" |
+        awk '/DLL Name:/ { selected = tolower($NF) == "winscard.dll" } selected { print }' \
+        > "$work/winscard-fixture-imports.txt"
+    for symbol in SCardEstablishContext SCardReleaseContext SCardListReadersA SCardListReadersW \
+        SCardConnectA SCardConnectW SCardDisconnect SCardTransmit SCardIsValidContext \
+        SCardFreeMemory SCardStatusW SCardGetStatusChangeW g_rgSCardT1Pci; do
+        grep -E "[[:space:]]$symbol\$" "$work/winscard-fixture-imports.txt" >/dev/null || {
+            printf '%s\n' "WinSCard SDK fixture does not import $symbol" >&2
+            exit 1
+        }
+    done
     if [ -e "$test_output/libusb-1.0.dll" ]; then
         printf '%s\n' 'refusing to stage libusb-1.0.dll next to the tests' >&2
         exit 1
     fi
 fi
 
-printf '%s\n' "Windows Phase 1 build staged in $output"
-[ -z "$test_output" ] || printf '%s\n' "Windows Phase 1 tests staged in $test_output"
+printf '%s\n' "Windows x64 build and application-local WinSCard DLL staged in $output"
+[ -z "$test_output" ] || printf '%s\n' "Windows offline tests staged in $test_output"

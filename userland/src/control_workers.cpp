@@ -51,6 +51,7 @@ bool operation_lane_valid(ControlWorkerLane lane,
     case ControlWorkerOperation::tuner_shutdown:
         return lane == ControlWorkerLane::tuner_dev1;
     case ControlWorkerOperation::card_status:
+    case ControlWorkerOperation::card_handle_status:
     case ControlWorkerOperation::card_status_combined:
     case ControlWorkerOperation::card_presence:
     case ControlWorkerOperation::card_connect:
@@ -867,6 +868,12 @@ struct ControlWorkerLanes::Impl final {
             else completion.card_status = result.value();
             break;
         }
+        case ControlWorkerOperation::card_handle_status: {
+            const auto result = card_service.handle_status(task.client_id, task.card_handle);
+            if (!result) operation_error = result.error();
+            else completion.card_status = result.value();
+            break;
+        }
         case ControlWorkerOperation::card_status_combined: {
             const auto card = card_service.status();
             if (!card) {
@@ -890,7 +897,8 @@ struct ControlWorkerLanes::Impl final {
             break;
         }
         case ControlWorkerOperation::card_connect: {
-            const auto result = card_service.connect(task.client_id, task.share_mode);
+            const auto result = card_service.connect(
+                task.client_id, task.share_mode, task.card_generation_bound);
             if (!result) operation_error = result.error();
             else completion.card_connect = result.value();
             break;

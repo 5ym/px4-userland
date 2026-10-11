@@ -8,9 +8,9 @@
 
 ## Supported scope
 
-- Runtime targets are Linux (including environments where kernel modules cannot be installed), Android/Termux, macOS, and Windows 11 x64 (Phase 1).
+- Runtime targets are Linux (including environments where kernel modules cannot be installed), Android/Termux, macOS, and Windows 11 x64.
 - Every target runtime must support both the tuners and its internal card reader.
-- Windows Phase 1 provides `px4d`/`px4-ts`/`px4ctl` and the versioned local IPC (including `CARD_*`) for same-host consumers. It uses the same wire protocol and `control.sock`/`stream.sock` concept. WinSCard DLL compatibility and Microsoft PC/SC IFD registration are Phase 2 and out of scope now. `tsukumijima/px4_drv` remains a separate product.
+- Windows provides `px4d`/`px4-ts`/`px4ctl` and the versioned local IPC (including `CARD_*`) for same-host consumers. Phase 2 adds only the x64 B25-compatible application-local WinSCard subset in SPEC 7.6. Full WinSCard, x86/native ARM64 DLL distribution, and Microsoft PC/SC IFD registration remain out of scope. `tsukumijima/px4_drv` remains a separate product.
 - Windows hardware claims stay `hardware-unverified` until real-device evidence exists; build and offline test success is only `build-tested`.
 - Android ad-hoc APK hardware testing is owned by dtv-android and is outside this repository's release gates and support claims. The APK is not a release artifact.
 - FreeBSD is outside the product scope; validation-results.md entries for it are historical only.

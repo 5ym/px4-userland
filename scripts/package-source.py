@@ -195,9 +195,10 @@ def main() -> int:
             "dependency.libusb.linkage=static\n"
             "corresponding-source-archive=present\n\n"
             "This archive contains the exact repository source snapshot and verified libusb 1.0.30 source "
-            "needed to rebuild or relink the Linux, macOS, Android, and Windows Phase 1 binaries. "
+            "needed to rebuild or relink the Linux, macOS, Android, and Windows binaries. "
             "On each of those targets, px4d statically links libusb 1.0.30. px4-ts, px4ctl, and the "
-            "Linux and macOS PC/SC IFD adapters do not link libusb. The Windows rebuild uses "
+            "Linux and macOS PC/SC IFD adapters, and the Windows application-local WinSCard DLL do not link libusb. "
+            "The Windows rebuild produces x64 binaries, including winscard/WinSCard.dll, and uses "
             "scripts/build-windows.sh; pass a modified copy with --libusb-source-dir. "
             "See BUILD-RELINK.md, THIRD_PARTY_NOTICES.md, and third_party/libusb-1.0.30/COPYING.\n",
         )
