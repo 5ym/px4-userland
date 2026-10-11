@@ -535,6 +535,13 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
 
   ```powershell
   $ErrorActionPreference = 'Stop'
+  $psHomeFull = [IO.Path]::GetFullPath($PSHOME)
+  if (-not [Environment]::Is64BitProcess -or
+      $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or
+      $psHomeFull -notmatch '(?i)\\System32\\WindowsPowerShell\\v1\.0$') {
+    throw 'Run this procedure in x64 Windows PowerShell 5.1 from the System32 installation.'
+  }
+  $childPowerShell = Join-Path $psHomeFull 'powershell.exe'
   $D = 'C:\px4-e17-<taskid>\extract'      # タスク固有の未使用path。既存pathを再利用しない。
   $LOG = 'C:\px4-e17-<taskid>\log'
   $ZIP = 'C:\path\to\px4-userland-<version>-windows-x86_64.zip'
@@ -685,6 +692,16 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
     }
     if (-not $ready) { throw 'px4d did not reach ready=yes within the bounded poll' }
 
+    # 独立したx64 Windows PowerShell 5.1子processでWinSCard smoke。child sourceはPhase 2欄のコードを事前保存する。
+    $probePath = Join-Path $LOG 'winscard-smoke.ps1'
+    if (-not (Test-Path -LiteralPath $probePath -PathType Leaf)) { throw "missing WinSCard smoke script: $probePath" }
+    $probe = Start-OwnedProcess $childPowerShell @(
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $probePath,
+      '-DllPath', (Join-Path $D 'winscard\WinSCard.dll'), '-RuntimeDir', $RT, '-DeviceSerial', $ID
+    ) $true
+    $probeExit = Stop-OwnedProcess $probe 30000 'winscard-smoke'
+    if ($probeExit -ne 0) { throw "WinSCard smoke child exit code was $probeExit" }
+
     $captures = @()
     # Q3U4: 0/1/4/5=ISDB-S、2/3/6/7=ISDB-T。8 receiverを同時起動する。他profileはSPEC 10.2.7の該当のみ。
     foreach ($r in 0..7) {
@@ -729,6 +746,201 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   ATR/reset/APDU 10回成功をoutput fieldとexit値で確認する。これは直接CARD_*の証拠であり、次のWinSCard試験を代用しない。
 
 - Phase 2実機への引継ぎ（SPEC 7.6 / [Windows WinSCard手順](platforms/windows-winscard.md)）:
+  - 以下のchild scriptを先に$LOG\winscard-smoke.ps1へ保存する。上のE17 X-START blockがready=yesを確認した直後に
+    起動し、Stop-OwnedProcessがstdin EOFを送り、30秒でchild終了を待ち、stdout/stderrを各5秒drainして
+    winscard-smoke.out/.err/.rcへ保存する。返却exit codeが非0なら失敗とするため、parent daemonはreadyのまま、
+    daemon shutdown前にsmokeが終わる。child起動時の-ExecutionPolicy Bypassはそのprocessだけに適用し、
+    user/machine policyを永続変更しない。上のpreflightでparentがx64 Windows PowerShell 5.1であることも確認する。
+    DLL pathはcandidate展開先の$D\winscard\WinSCard.dll、device/runtimeは既存の$ID/$RTを使う。
+    child processだけにPX4_WINSCARD_RUNTIME_DIR=$RTを設定する。ambient LOCALAPPDATAは変更しない。
+    PowerShellのmanaged呼出しでは$nullがC#のstringに渡る時に空文字へ変換される（IsNull($null)=false、Length($null)=0）。
+    そのためstring groupsに$nullを渡すと実NULL pointerにならず、今回の初回smokeはcandidateがNULL以外のgroupを拒否して
+    0x80100022で失敗した。P/Invoke宣言をIntPtr groupsとし、queryとbuffer両方へ[IntPtr]::Zeroを渡す。
+    下記のCompileOnly/SelfTestはAPIを呼ばない静的確認用。
+    ~~~powershell
+    param(
+      [Parameter(Mandatory=$true)][string]$DllPath,
+      [Parameter(Mandatory=$true)][string]$RuntimeDir,
+      [Parameter(Mandatory=$true)][string]$DeviceSerial,
+      [switch]$CompileOnly,
+      [switch]$SelfTest
+    )
+    $ErrorActionPreference = 'Stop'
+    if (-not [Environment]::Is64BitProcess) { throw 'Use x64 Windows PowerShell.' }
+    if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+      throw 'Use Windows PowerShell 5.1.'
+    }
+    $DllPath = [IO.Path]::GetFullPath($DllPath)
+    $RuntimeDir = [IO.Path]::GetFullPath($RuntimeDir)
+    if (-not (Test-Path -LiteralPath $DllPath -PathType Leaf)) { throw 'Candidate WinSCard.dll not found.' }
+    [Environment]::SetEnvironmentVariable('PX4_WINSCARD_RUNTIME_DIR', $RuntimeDir, 'Process')
+    $dllLiteral = $DllPath.Replace('\', '\\').Replace('"', '\"')
+    $nativeSource = @"
+    using System;
+    using System.Collections.Generic;
+    using System.Runtime.InteropServices;
+    using System.Text;
+    public static class Px4WinSCardSmoke {
+      public static bool IsNull(string value) { return value == null; }
+      public static int StringLength(string value) { return value == null ? -1 : value.Length; }
+      public static bool IsZero(IntPtr value) { return value == IntPtr.Zero; }
+      [DllImport("$dllLiteral", EntryPoint="SCardEstablishContext", ExactSpelling=true)]
+      public static extern int Establish(uint scope, IntPtr r1, IntPtr r2, out IntPtr context);
+      [DllImport("$dllLiteral", EntryPoint="SCardReleaseContext", ExactSpelling=true)]
+      public static extern int Release(IntPtr context);
+      [DllImport("$dllLiteral", EntryPoint="SCardListReadersW", CharSet=CharSet.Unicode, ExactSpelling=true)]
+      public static extern int ListReaders(IntPtr context, IntPtr groups, IntPtr readers, ref uint length);
+      [DllImport("$dllLiteral", EntryPoint="SCardConnectW", CharSet=CharSet.Unicode, ExactSpelling=true)]
+      public static extern int Connect(IntPtr context, string reader, uint share, uint protocols,
+        out IntPtr card, out uint activeProtocol);
+      [DllImport("$dllLiteral", EntryPoint="SCardStatusW", CharSet=CharSet.Unicode, ExactSpelling=true)]
+      public static extern int Status(IntPtr card, StringBuilder reader, ref uint readerLength,
+        out uint state, out uint protocol, [Out] byte[] atr, ref uint atrLength);
+      [DllImport("$dllLiteral", EntryPoint="SCardDisconnect", ExactSpelling=true)]
+      public static extern int Disconnect(IntPtr card, uint disposition);
+      [DllImport("kernel32.dll", EntryPoint="GetModuleHandleW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+      public static extern IntPtr GetModuleHandle(string absolutePath);
+      [DllImport("kernel32.dll", EntryPoint="GetModuleFileNameW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+      public static extern uint GetModuleFileName(IntPtr module, StringBuilder path, uint capacity);
+      public static string[] ReadMultiSz(IntPtr buffer, uint length) {
+        var values = new List<string>();
+        var current = new StringBuilder();
+        bool previousWasNull = false;
+        for (uint i = 0; i < length; i++) {
+          char c = (char)Marshal.ReadInt16(buffer, checked((int)(i * 2)));
+          if (c == '\0') {
+            if (current.Length == 0) {
+              if (previousWasNull || values.Count == 0) break;
+              previousWasNull = true;
+            } else {
+              values.Add(current.ToString());
+              current.Length = 0;
+              previousWasNull = true;
+            }
+          } else {
+            current.Append(c);
+            previousWasNull = false;
+          }
+        }
+        return values.ToArray();
+      }
+    }
+"@
+    Add-Type -TypeDefinition $nativeSource -Language CSharp
+    function Format-ScardCode([int]$Code) {
+      $raw = [BitConverter]::GetBytes([int]$Code)
+      $unsigned = [BitConverter]::ToUInt32($raw, 0)
+      return ('0x{0:X8}' -f $unsigned)
+    }
+    if ($CompileOnly) { Write-Output 'COMPILE_ONLY=PASS; no WinSCard API called.'; exit 0 }
+    if ($SelfTest) {
+      $test = [Runtime.InteropServices.Marshal]::StringToHGlobalUni(("alpha" + [char]0 + "beta" + [char]0))
+      try {
+        [string[]]$parsed = @([Px4WinSCardSmoke]::ReadMultiSz($test, 12))
+        if ($parsed.Count -ne 2 -or $parsed[0] -cne 'alpha' -or $parsed[1] -cne 'beta') {
+          throw 'MULTI_SZ self-test failed.'
+        }
+      } finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($test) }
+      if ([Px4WinSCardSmoke]::IsNull($null) -or [Px4WinSCardSmoke]::StringLength($null) -ne 0) {
+        throw 'PowerShell managed null conversion self-test failed.'
+      }
+      if (-not [Px4WinSCardSmoke]::IsZero([IntPtr]::Zero) -or
+          [Px4WinSCardSmoke].GetMethod('ListReaders').GetParameters()[1].ParameterType -ne [IntPtr]) {
+        throw 'ListReaders NULL-pointer ABI self-test failed.'
+      }
+      if ((Format-ScardCode 0) -cne '0x00000000' -or
+          (Format-ScardCode -2146435038) -cne '0x80100022' -or
+          (Format-ScardCode -2146435064) -cne '0x80100008') {
+        throw 'SCARD return-code formatting self-test failed.'
+      }
+      Write-Output 'SELFTEST=PASS; MULTI_SZ, NULL-pointer ABI, and SCARD return-code formatting; no WinSCard API called.'
+      exit 0
+    }
+
+    $context = [IntPtr]::Zero
+    $card = [IntPtr]::Zero
+    $failed = $false
+    try {
+      $rc = [Px4WinSCardSmoke]::Establish(0, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$context)
+      Write-Output ('SCardEstablishContext=' + (Format-ScardCode $rc))
+      if ($rc -ne 0) { throw 'SCardEstablishContext failed.' }
+      $module = [Px4WinSCardSmoke]::GetModuleHandle($DllPath)
+      if ($module -eq [IntPtr]::Zero) { throw 'GetModuleHandleW did not find the candidate module.' }
+      $modulePath = New-Object Text.StringBuilder 32768
+      $moduleLength = [Px4WinSCardSmoke]::GetModuleFileName($module, $modulePath, [uint32]$modulePath.Capacity)
+      if ($moduleLength -eq 0 -or $moduleLength -ge $modulePath.Capacity) { throw 'GetModuleFileNameW failed or truncated.' }
+      $loaded = [IO.Path]::GetFullPath($modulePath.ToString()).TrimEnd('\')
+      Write-Output ('LOADED_MODULE_PATH=' + $loaded)
+      if (-not [string]::Equals($loaded, $DllPath.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Loaded module is not the candidate absolute DLL path.'
+      }
+
+      [uint32]$length = 0
+      $rc = [Px4WinSCardSmoke]::ListReaders($context, [IntPtr]::Zero, [IntPtr]::Zero, [ref]$length)
+      Write-Output ('SCardListReadersW(query)=' + (Format-ScardCode $rc) + '; chars=' + $length)
+      if ($rc -notin @(0, [int]0x80100008) -or $length -lt 2 -or $length -gt 65536) {
+        throw 'SCardListReadersW size query failed or returned an invalid MULTI_SZ length.'
+      }
+      $allocated = $length
+      $buffer = [Runtime.InteropServices.Marshal]::AllocHGlobal([int]$length * 2)
+      try {
+        $rc = [Px4WinSCardSmoke]::ListReaders($context, [IntPtr]::Zero, $buffer, [ref]$length)
+        Write-Output ('SCardListReadersW(buffer)=' + (Format-ScardCode $rc) + '; chars=' + $length)
+        if ($rc -ne 0 -or $length -gt $allocated) { throw 'SCardListReadersW buffer call failed.' }
+        [string[]]$readers = @([Px4WinSCardSmoke]::ReadMultiSz($buffer, $length))
+      } finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($buffer) }
+
+      $target = 'PX4 userland (' + $DeviceSerial + ')'
+      $matches = @($readers | Where-Object { [string]::Equals($_, $target, [StringComparison]::Ordinal) })
+      Write-Output ('READER_COUNT=' + $readers.Count + '; TARGET_READER_MATCHES=' + $matches.Count)
+      if ($matches.Count -ne 1) { throw 'Expected exactly one reader for the selected device.' }
+      [uint32]$active = 0
+      $rc = [Px4WinSCardSmoke]::Connect($context, $target, 2, 2, [ref]$card, [ref]$active)
+      Write-Output ('SCardConnectW=' + (Format-ScardCode $rc) + '; active_protocol=' + $active)
+      if ($rc -ne 0 -or $active -ne 2 -or $card -eq [IntPtr]::Zero) {
+        throw 'SCardConnectW did not establish SHARED/T=1.'
+      }
+
+      $readerName = New-Object Text.StringBuilder 1024
+      [uint32]$readerLength = [uint32]$readerName.Capacity
+      [uint32]$state = 0
+      [uint32]$protocol = 0
+      [uint32]$atrLength = 64
+      $atr = New-Object byte[] 64
+      $rc = [Px4WinSCardSmoke]::Status($card, $readerName, [ref]$readerLength,
+        [ref]$state, [ref]$protocol, $atr, [ref]$atrLength)
+      Write-Output ('SCardStatusW=' + (Format-ScardCode $rc) + '; state=' + $state +
+        '; protocol=' + $protocol + '; ATR_length=' + $atrLength)
+      if ($rc -ne 0 -or $state -ne 6 -or $protocol -ne 2 -or
+          $readerLength -gt $readerName.Capacity -or $atrLength -gt $atr.Length -or
+          -not [string]::Equals($readerName.ToString(), $target, [StringComparison]::Ordinal)) {
+        throw 'SCardStatusW returned an invalid state, protocol, or output length.'
+      }
+      # ATR bytes and card identity are intentionally never printed or saved.
+    } catch {
+      Write-Error -ErrorAction Continue $_
+      $failed = $true
+    } finally {
+      if ($card -ne [IntPtr]::Zero) {
+        try {
+          $rc = [Px4WinSCardSmoke]::Disconnect($card, 0) # SCARD_LEAVE_CARD
+          Write-Output ('SCardDisconnectLEAVE=' + (Format-ScardCode $rc))
+          if ($rc -ne 0) { $failed = $true }
+        } catch { Write-Error -ErrorAction Continue $_; $failed = $true }
+      }
+      if ($context -ne [IntPtr]::Zero) {
+        try {
+          $rc = [Px4WinSCardSmoke]::Release($context)
+          Write-Output ('SCardReleaseContext=' + (Format-ScardCode $rc))
+          if ($rc -ne 0) { $failed = $true }
+        } catch { Write-Error -ErrorAction Continue $_; $failed = $true }
+      }
+    }
+    if ($failed) { exit 1 }
+    exit 0
+    ~~~
   - exact candidate ZIP/run/SHA-256と同版daemon/DLLを使う。applicationの起動前に、そのprocessの
     `PX4_WINSCARD_RUNTIME_DIR`へ`$RT`を渡す。ambient `LOCALAPPDATA`は変更しない。EXE横への配置だけで成功とせず、
     applicationが実際にロードしたWinSCard module pathを確認する。System32/SysWOW64・KnownDLL・service設定を変更しない。

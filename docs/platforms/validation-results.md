@@ -8,6 +8,32 @@ Stable release の実測記録は本ファイルへ日付付きで追記する�
 
 release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 archive（9 binary + source。binaryは8 tar archiveとWindows ZIP）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、soakの有無・時間・対象OSについてのユーザー決定、各 test の環境ID・OS/architecture・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。失敗試行と過去版に限定した受入判断を保持し、機械可読の完了表明を実測の代わりにしない。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
+## 2026-10-12 v0.2.1 candidate E17 Windows WinSCard smoke（限定実機確認）
+
+- 対象と範囲: candidate commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**、candidate run **38148226256**。
+  成功runは2026-10-12 07:48:01–07:48:06 JST。利用者のWindows 11 x64通常ユーザーsession 1、
+  x64 Windows PowerShell 5.1でPX-Q3U4を使った。
+  Windows ZIP SHA-256 **90743502ec4deca9db3f82a5c4a14285196050d8607ac3ca03bc9c46378647f4**、
+  px4d.exe SHA-256 **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  WinSCard.dll SHA-256 **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+  candidate artifactは事前にhash確認済み。変更対象はProbeだけで、candidate ZIP/binaryは変更していない
+  （事後再hashを実施したという意味ではない）。返却された診断結果ZIPのSHA-256は
+  **33f3dc401c09d0416d8bf4b8322af4de0b0c84dcc6e7aa34d95e6fb43c026b14**。
+- 初回診断: daemonはready、px4ctlはexit 0でcard-presentを報告し、daemonもexit 0で終了したが、
+  WinSCardのSCardListReadersWは**0x80100022**で失敗した。初回ProbeはP/Invokeのstring groupsへPowerShellの
+  $nullを渡していた。純managed C#確認でPowerShellからstring引数へ渡る$nullはnull参照ではなく空文字
+  （IsNull($null)=false、Length($null)=0）になることを確認した。candidateはNULL以外のgroupsを
+  UNSUPPORTED_FEATUREとして拒否するため、この呼出しはNULL group queryになっていなかった。
+- Probe修正後: groupsをIntPtrにし、size queryとbuffer呼出しの両方にIntPtr.Zeroを渡した。
+  candidate自体は変更していない。Establish、ListReadersW size queryとbuffer（各return code 0、bufferは31
+  UTF-16 code units、対象reader 1件）、Connect（SHARED/T=1）、Status（state 6、protocol 2、ATR length 13）、
+  Disconnect（LEAVE）、Releaseの各return codeはすべて0。ATR bytesやcard identityは保存・掲載していない。
+  Probe exit 0、daemon exit 0、cleanup error・process/runtime残留なし。
+- 判定: このcandidate、Windows実機session、Q3U4におけるapplication-local WinSCard列挙・接続・状態取得・
+  正常解放の限定smokeを今回再検証とする。B25 application互換や一般WinSCard互換の合格を意味しない。
+  TS復号、EDCB、recisdb-rs、TVTest、物理card抜去/再挿入、soak、full matrixは本runの対象外。
+  SSH原因は未確定。
+
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 
 candidate・CI run・archive SHA-256は下記E17節と同一（source commit `8c40d495850c332312cd4293489f400c8fb842d4`、
