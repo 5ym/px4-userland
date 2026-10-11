@@ -207,6 +207,17 @@ function(px4_enable_project_warnings target)
 endfunction()
 
 px4_enable_project_warnings(px4_userland_core)
+if(PX4_BUILD_TESTS)
+    # The shared checker has no runtime, platform, USB, or vendor dependency.
+    # This source can also be built directly with only userland/include.
+    enable_testing()
+    add_executable(px4_ts_continuity_tests userland/tests/ts_continuity_tests.cpp)
+    target_include_directories(px4_ts_continuity_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/userland/include)
+    target_compile_features(px4_ts_continuity_tests PRIVATE cxx_std_17)
+    px4_enable_project_warnings(px4_ts_continuity_tests)
+    add_test(NAME px4_ts_continuity_tests COMMAND px4_ts_continuity_tests)
+endif()
 if(TARGET px4_userland_stream_runtime)
     px4_enable_project_warnings(px4_userland_stream_runtime)
 endif()

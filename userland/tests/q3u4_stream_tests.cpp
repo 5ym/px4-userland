@@ -491,7 +491,7 @@ bool test_continuity_and_epoch_reset()
     auto& plane = *created.value();
     auto run_case = [&](std::uint64_t id, std::vector<std::uint8_t> input,
                         std::size_t expected_packets, std::uint64_t expected_errors,
-                        bool fragmented) noexcept {
+                        bool fragmented, std::uint64_t expected_tei = 0U) noexcept {
         const auto value = attachment(2U, id);
         if (!plane.attach(value)) return false;
         const std::size_t expected_bytes =
@@ -517,6 +517,7 @@ bool test_continuity_and_epoch_reset()
         const auto counters = plane.stats(value);
         const bool good = read && read.value().bytes == expected_bytes && counters &&
                           counters.value().continuity_errors == expected_errors &&
+                          counters.value().tei_packets == expected_tei &&
                           plane.detach(value);
         if (!good) (void)plane.detach(value);
         return good;
@@ -536,7 +537,9 @@ bool test_continuity_and_epoch_reset()
     append_packet(duplicate_gap, wire_packet(3U, 0x101U, 1U));
     append_packet(duplicate_gap, wire_packet(3U, 0x101U, 3U));
     append_packet(duplicate_gap, wire_packet(3U, 0x101U, 4U));
-    STREAM_CHECK(run_case(91U, duplicate_gap, 5U, 2U, false));
+    // Keep the original regression input: only the 1 -> 3 gap is erroneous.
+    // H.222.0 permits the preceding byte-identical payload duplicate pair.
+    STREAM_CHECK(run_case(91U, duplicate_gap, 5U, 1U, false));
 
     std::vector<std::uint8_t> adaptation_only;
     append_packet(adaptation_only, wire_packet(3U, 0x101U, 1U));
@@ -582,6 +585,76 @@ bool test_continuity_and_epoch_reset()
     append_packet(null_packets, wire_packet(3U, 0x1fffU, 9U));
     append_packet(null_packets, wire_packet(3U, 0x1fffU, 3U));
     STREAM_CHECK(run_case(98U, null_packets, 4U, 0U, false));
+
+    std::vector<std::uint8_t> duplicate_pair;
+    append_packet(duplicate_pair, wire_packet(3U, 0x101U, 0U));
+    append_packet(duplicate_pair, wire_packet(3U, 0x101U, 1U));
+    append_packet(duplicate_pair, wire_packet(3U, 0x101U, 1U));
+    append_packet(duplicate_pair, wire_packet(3U, 0x101U, 2U));
+    STREAM_CHECK(run_case(100U, duplicate_pair, 3U, 0U, true));
+
+    std::vector<std::uint8_t> repeated_payload;
+    append_packet(repeated_payload, wire_packet(3U, 0x101U, 0U));
+    for (unsigned repeat = 0U; repeat < 4U; ++repeat)
+        append_packet(repeated_payload, wire_packet(3U, 0x101U, 1U));
+    append_packet(repeated_payload, wire_packet(3U, 0x101U, 2U));
+    STREAM_CHECK(run_case(101U, repeated_payload, 5U, 2U, false));
+
+    std::vector<std::uint8_t> conflicting_payload;
+    append_packet(conflicting_payload, wire_packet(3U, 0x101U, 0U));
+    append_packet(conflicting_payload, wire_packet(3U, 0x101U, 1U));
+    auto changed = wire_packet(3U, 0x101U, 1U);
+    changed.back() = 1U;
+    append_packet(conflicting_payload, changed);
+    append_packet(conflicting_payload, wire_packet(3U, 0x101U, 2U));
+    STREAM_CHECK(run_case(102U, conflicting_payload, 3U, 1U, false));
+
+    std::vector<std::uint8_t> adaptation_reset;
+    append_packet(adaptation_reset, wire_packet(3U, 0x101U, 0U));
+    append_packet(adaptation_reset, wire_packet(3U, 0x101U, 1U));
+    auto marker = wire_packet(3U, 0x101U, 9U, 2U);
+    marker[4U] = 183U;
+    marker[5U] = 0x80U;
+    append_packet(adaptation_reset, marker);
+    append_packet(adaptation_reset, wire_packet(3U, 0x101U, 10U));
+    STREAM_CHECK(run_case(103U, adaptation_reset, 3U, 0U, true));
+    // A marker does not excuse an unrelated later payload CC.
+    append_packet(adaptation_reset, wire_packet(3U, 0x101U, 4U));
+    STREAM_CHECK(run_case(104U, adaptation_reset, 4U, 1U, false));
+
+    std::vector<std::uint8_t> adaptation_fault;
+    append_packet(adaptation_fault, wire_packet(3U, 0x101U, 0U));
+    append_packet(adaptation_fault, wire_packet(3U, 0x101U, 1U));
+    marker[5U] = 0U;
+    append_packet(adaptation_fault, marker);
+    append_packet(adaptation_fault, wire_packet(3U, 0x101U, 10U));
+    STREAM_CHECK(run_case(105U, adaptation_fault, 3U, 1U, false));
+
+    std::vector<std::uint8_t> untrusted_counter;
+    append_packet(untrusted_counter, wire_packet(3U, 0x101U, 0U));
+    append_packet(untrusted_counter, wire_packet(3U, 0x101U, 1U));
+    append_packet(untrusted_counter, wire_packet(3U, 0x101U, 7U, 1U, false, true));
+    append_packet(untrusted_counter, wire_packet(3U, 0x101U, 2U));
+    STREAM_CHECK(run_case(106U, untrusted_counter, 3U, 0U, false, 1U));
+
+    std::vector<std::uint8_t> wire_tei_duplicate;
+    append_packet(wire_tei_duplicate, wire_packet(3U, 0x101U, 0U));
+    append_packet(wire_tei_duplicate, wire_packet(3U, 0x101U, 1U));
+    append_packet(wire_tei_duplicate, wire_packet(11U, 0x102U, 7U));
+    append_packet(wire_tei_duplicate, wire_packet(3U, 0x101U, 1U));
+    append_packet(wire_tei_duplicate, wire_packet(3U, 0x101U, 2U));
+    // The wire-TEI packet is discarded before enqueue, but still destroys
+    // confidence that the surrounding payloads were consecutive for this PID.
+    STREAM_CHECK(run_case(108U, wire_tei_duplicate, 3U, 1U, false, 1U));
+
+    // The generic checker accepts a duplicate, but the hardware boundary
+    // still requires a consecutive CC transition before publishing this PID.
+    std::vector<std::uint8_t> startup_duplicate;
+    append_packet(startup_duplicate, wire_packet(3U, 0x101U, 7U));
+    append_packet(startup_duplicate, wire_packet(3U, 0x101U, 7U));
+    append_packet(startup_duplicate, wire_packet(3U, 0x101U, 8U));
+    append_packet(startup_duplicate, wire_packet(3U, 0x101U, 9U));
+    STREAM_CHECK(run_case(107U, startup_duplicate, 2U, 0U, false));
 
     const auto reset = attachment(2U, 95U);
     STREAM_CHECK(plane.attach(reset));
