@@ -1,9 +1,17 @@
 # px4-userland 仕様
 
-Status: Frozen v0.34 (2026-10-11)
+Status: Frozen v0.35 (2026-10-11)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+### v0.35 change record (2026-10-11)
+
+- 10.4節: candidate生成専用のbuild workflowとは別に、ユーザーが明示的に依頼したタグ＋リリースを
+  tag pushから実行する公開workflowを定める。コミット済みノートとcandidate/run/hash/evidenceの記録、
+  候補2runの再現性、tag payload、Draft/公開後の照合を共通化する。物理試験・soakの決定権・support範囲は変えない。
+- リリースノート本文は必要試験の完了後にユーザーから作成を依頼されてから書く。
+  ノート作成の依頼とタグ＋リリースの依頼を分離し、GitHub Environmentによる追加の手動承認は設けない。
 
 ### v0.34 change record (2026-10-11)
 
@@ -1251,12 +1259,21 @@ source archiveは `__pycache__/`、`.pyc`、`.pyo`、`.pyd` などのPythonバ�
    Windowsの実行ファイルはOS標準DLLを動的ロードしてよい。libusbをLGPL §3によりGPL化したとは主張しない。
 
 このgateの包装・manifest・checksum・binary/source archive auditは、local packaging scriptsと
-`.github/workflows/build_userland.yml`の`release-candidate` workflowとして実装済みである。workflowはtagや
+`.github/workflows/build_userland.yml`の`release-candidate` workflowとして実装済みである。このbuild workflowはtagや
 GitHub Releaseを作成せず、9つのbinary archive（8つのtar archiveとWindows ZIP 1つ）、対応source archive、外側
 `SHA256SUMS`をcandidate artifactとしてまとめる。release recordは各hardware claimについて、このcandidateのexact artifactで試験したか、従前artifactの
 evidenceを継承したかを明記する。exact-current-artifactで未試験なら未試験と記録し、過去artifactの結果を今回の直接
 試験として扱わない。Androidの各ABI/access pathは正式launcherを用いた独立したevidenceを要する。Linux aarch64は
 archive auditとnative CI buildを必須とするが、実機未検証を既知の非ブロッカーとして公開時に明記する。
+
+公開は別の`release_tag.yml`から共通の`release_reusable.yml`を呼び出す。ユーザーが必要試験後に作成を依頼した
+`release-notes/vX.Y.Z.md`を本文とし、対応するJSON sidecarへcandidate/reproductionのexact run・SHA・tree・
+artifact ID/hash・実効build input・runner imageと完了証拠を記録する。候補固定前は両ファイルに未完成の
+placeholderだけを用意し、tag sourceとのinventoryを保つ。書式は`docs/release-record.md`に定める。
+ユーザーの別の「タグ＋リリース」依頼の後にだけtagをpushし、成功したexact tag build、候補2runのbyte一致、
+候補対tagの非文書payload一致、Draftの再取得、公開後の再取得を照合する。recordは人が確認したgateの表明であり、
+自動検査は実機試験・測定・ユーザー判断を認定しない。追加のEnvironment手動承認は設けない。
+公開手順は`docs/releasing.md`に従い、未完了・不一致では停止する。公開済みtag・assetは固定する。
 
 ### 10.5 Stable release gate
 

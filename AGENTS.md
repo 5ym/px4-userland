@@ -30,6 +30,8 @@
 
 ## Release notes
 
+- 正本は `release-notes/vX.Y.Z.md` にコミットする。必要な実機・仕様変更試験と再現性確認の完了後、ユーザーから明示的に作成を依頼されてから本文を書く。候補固定前は同名 `.md` / `.json` の無効な placeholder だけを準備する（`release-notes/README.md`）。
+- ノート作成・commit と「タグ＋リリース」の依頼は別の判断とする。後者を明示的に依頼されるまでタグを push しない。追加の GitHub Environment 手動承認は設けず、承認後の tag workflow が照合・Draft・公開・公開後照合を行う。手順は `docs/releasing.md`。
 - GitHub Release のタイトルは `vX.Y.Z` のみとし、先頭に製品名などを付けない。
 - 本文の先頭見出しは `px4-userland vX.Y.Z` とする。
 - 概要は敬体（です・ます調）で簡潔に書く。
@@ -57,6 +59,7 @@
 
 ## Stable release validation
 
+- 共通 matrix / candidate・run・hash・証拠の記録構造は [`docs/release-record.md`](docs/release-record.md) に従う。機械可読 sidecar の完了表明や offline 検査を、実機測定・ユーザー判断の代わりにしない。過去の実測記録と support claim は保持する。
 - Stable 公開前の検証は [`docs/release-validation.md`](docs/release-validation.md) の順に行う。判定条件の正本は `SPEC.md` の10章であり、手順書との不一致はSPECを優先して手順書を直す。
 - 配布する各主要OS/architecture binary artifactについて、final candidateの実機確認を毎回行う。短時間確認の一連の操作に総時間上限を設けない。5分はユーザーの物理操作（B-CAS/USB抜去・再挿入）の応答待ち上限であり、各操作を要求するときはHAOS側でCodexは`beep`、Claude Codeは`vibe`を実行する。5分を超える連続負荷試験はsoakとして分ける。安定性に影響し得る変更のsoak有無・時間（10分/30分/2時間）・対象OSはユーザーが決める。エージェントは選ばず、判断材料を示して決定を待つ。独自の巨大検証scriptを追加しない。
 - 検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一し、証拠は [`docs/platforms/validation-results.md`](docs/platforms/validation-results.md) へ記録する。実施・省略・非該当の根拠と失敗試行を残す。物理USB/cardの抜差しはユーザーの確認なしに行わない。

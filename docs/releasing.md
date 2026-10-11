@@ -1,160 +1,97 @@
 # Stable リリース手順
 
-この文書は px4-userland の Stable リリース公開手順を定める。リリース候補の固定、事前検証、タグの付与、CI 生成アーティファクトの照合、GitHub Release の公開、公開後記録の反映までの全工程を扱う。
+この文書は px4-userland の候補固定、検証、リリースノート作成、タグと GitHub Release の公開手順です。判定条件の正本は `SPEC.md` 10章、実機手順は [release-validation.md](release-validation.md)、記録形式は [release-record.md](release-record.md) を参照してください。この手順の実装・PR・CI 成功は、実機合格や公開の承認ではありません。
 
-合否条件と認定条件の正本は [`SPEC.md`](../SPEC.md) 10章、実機検証の実行手順は [`docs/release-validation.md`](release-validation.md)、リリースノートの記述規則は [`AGENTS.md`](../AGENTS.md)「Release notes」節を参照する。本書は公開作業の具体的な実行手順に特化して記述する。
+## 共通の順序と利用者の判断
 
-## 公開アーティファクト構成
+- **A: 合格した場合** — candidate → 試験結果の文書コミット → 依頼後にノート作成・コミット → 両方を含むコミットに、別の依頼後にタグ → 自動照合・Release 公開。
+- **B: 失敗してコード修正が必要な場合** — 失敗を記録 → コード修正 → 新 candidate → 必要な検証を繰り返し、合格してから A へ進む。修正前の候補の合格や旧 hash を新候補へ流用しません。
 
-GitHub Release に公開するアセットは、タグ push を契機として CI（release CI）が生成した以下の11ファイルである。
+候補前の placeholder はファイルの置き場所を確保する準備だけです。ノート本文や試験結果を先に書くものではありません。
 
-- 配布バイナリアーカイブ 9種:
-  - `px4-userland-<version>-linux-glibc-x86_64.tar.gz`
-  - `px4-userland-<version>-linux-musl-x86_64.tar.gz`
-  - `px4-userland-<version>-linux-glibc-aarch64.tar.gz`
-  - `px4-userland-<version>-linux-musl-aarch64.tar.gz`
-  - `px4-userland-<version>-darwin-arm64.tar.gz`
-  - `px4-userland-<version>-android-aarch64.tar.gz`
-  - `px4-userland-<version>-android-armv7a.tar.gz`
-  - `px4-userland-<version>-android-x86_64.tar.gz`
-  - `px4-userland-<version>-windows-x86_64.zip`
-- 対応ソースアーカイブ 1種:
-  - `px4-userland-<version>-source.tar.gz`
-- 外側チェックサムファイル 1種:
-  - `SHA256SUMS`（上記10アーカイブの SHA-256 ハッシュを記録したもの）
+1. 候補を固定し、CI の候補アーティファクトを検証します。
+2. 必要な実機試験・仕様変更試験・ユーザーが決めた soak と再現性確認を完了します。
+3. 試験結果を文書へ記録してコミットします。
+4. 利用者から明示的に「リリースノートを書いて」と依頼された後、利用者向けのノートと機械可読記録を確定し、文書だけの後続コミットにします。
+5. 利用者から別途「タグ＋リリース」の依頼を受けた後、試験結果とノートの両コミットを含むコミットに注釈付きタグを作成して push します。
+6. タグを契機に、タグ CI の成果物を照合し、Draft の添付確認、公開、公開後確認まで workflow が実行します。
 
-公開対象はタグ CI が生成した上記アーティファクトである。実機試験に用いた候補アーティファクトそのものは公開物とせず、タグ CI の生成物と展開照合し、文書以外のペイロードが byte-identical であることを確認したうえで公開する。
+試験完了、ノート作成の依頼、ノートのコミットは「タグ＋リリース」の許可を代替しません。タグ push が公開工程を開始するため、承認前にタグを push しません。コミット・push・マージも、その操作についての利用者の依頼に従います。追加の GitHub Environment 手動承認は設けません。
 
-## リリース工程
+## 公開アーティファクト
 
-Stable リリースは次の13工程に沿って進める。
+公開するのは `build_userland.yml` の成功した **tag push run** が生成した `release-candidate` です。実機試験に使った候補 run とは別の run であり、候補をそのまま添付する手順ではありません。
 
-### 1. 候補コミットの固定と候補アーティファクトの生成
+- バイナリアーカイブ 9 本
+- `px4-userland-<version>-source.tar.gz` 1 本
+- 外側 `SHA256SUMS` 1 本（10 アーカイブの SHA-256）
 
-リリース候補のソースコミットを確定し、GitHub Actions のワークフロー `.github/workflows/build_userland.yml`（workflow 名: `portable userland foundation`）を実行して `release-candidate` アーティファクトを生成する。
+合計 11 ファイルです。具体的な target は [release-validation.md](release-validation.md) の配布 matrix を正本とします。Windows 11 x64 の ZIP を含む 9 binary target が必須です。APK・FreeBSD・firmware は配布しません。
 
-- アーティファクトには、9種のバイナリアーカイブ、1種の対応ソースアーカイブ、外側 `SHA256SUMS` の計11ファイルが含まれる。
-- このワークフローの役割はアーティファクトの生成に限定され、タグや GitHub Release の作成は後続の工程で行う（SPEC §10.4）。
+## 1. 候補の準備と固定
 
-### 2. リリース前検証と再現性確認
+対象の `VERSION` とブランチ（現在は `main`）を確認します。バージョンを変更する判断は別途行い、この手順の追加だけでは変更しません。
 
-生成された候補アーティファクトを用い、[`docs/release-validation.md`](release-validation.md) に従って全対象環境での実機確認と仕様変更試験を実施する。
+候補を作る前に、対象版の `release-notes/vX.Y.Z.md` と `release-notes/vX.Y.Z.json` を未完成の置き場所として用意します。[release-notes/README.md](../release-notes/README.md) の無効な placeholder を使い、変更内容・合格・承認を先回りして書きません。ソースアーカイブの inventory も照合するため、これらのファイルを試験後に新規追加せず、最初から候補へ含めます。
 
-- 同一ソースコミットに対する独立した2回の CI candidate run を突き合わせ、SPEC §10.5-2 に定める再現性確認（全10アーカイブ本体および外側 `SHA256SUMS` の byte-identical 照合、runner image と実効 build input の一致確認）を完了する。
-- 物理操作や連続負荷試験（soak）の判断基準は `docs/release-validation.md` および `AGENTS.md` の規定に従う。
+候補の full source SHA を固定し、`build_userland.yml`（`portable userland foundation`）を実行します。この build workflow 自体はタグや Release を作成しません。
 
-### 3. 試験結果の記録
+```sh
+gh workflow run build_userland.yml --ref <candidate-ref>
+gh run view <candidate-run-id> --json headSha,event,conclusion
+gh run download <candidate-run-id> --name release-candidate --dir <new-empty-dir>
+(cd <new-empty-dir> && sha256sum -c SHA256SUMS)
+```
 
-実機検証および再現性確認の結果を、文書ファイルのみのコミットとして作業ツリーに記録する。
+実際の ref/run ID/空ディレクトリを使います。実機試験に使う archive 名・hash・source SHA・run ID/attempt を固定し、ローカル build や別 run へ置き換えません。CI の全必須 job、archive audit、source/relink、各 platform smoke が成功していることを確認します。
 
-- 対象ファイル: `README.md`、`SPEC.md`、`docs/platforms/validation-results.md`、`docs/release-validation.md`
-- コミットおよび push の実行は、ユーザーの明示的な依頼を受けた場合に進める（AGENTS.md 共通規則）。
+## 2. 実機試験・仕様変更試験と再現性
 
-### 4. main ブランチへの統合
+[release-validation.md](release-validation.md) の既存条件で、配布する 9 binary archive を各 OS/architecture の実機で確認します。model、host、access path、feature は独立の軸です。他機種・他 OS・他 ABI の成功や過去の候補で穴を埋めません。物理 USB/card/アンテナ/電源操作は利用者が行い、承認された範囲だけ試験します。
 
-結果コミットを main ブランチへ取り込む。
+同じ source SHA/tree の独立した 2 回の clean candidate run を取得し、10 アーカイブ全体と外側 `SHA256SUMS` が byte-identical であることを確認します。run ID は別々でなければなりません。実効 build input/toolchain と runner image の観測値を両方残します。runner image が異なっても実効 build input の一致を確認できればよく、入力不明や入力差は合格にしません。UUID・署名・timestamp 等をマスクした比較で代替しません。
 
-- 取り込み経路には、Pull Request を経由したマージ（PR の CI 成功を確認したマージコミット）または main ブランチへの直接 push を用いる。
-- PR を経由する場合は、関連する全 CI ジョブの成功を確認してからマージする。
+証拠の本文は [既存の実測記録](../docs/platforms/validation-results.md) へ日付付きで追記します。失敗試行、未認定、対象外、継承の根拠を残し、機械可読記録の `completed` を実測の代わりにしません。必須条件が未完了ならここで止めます。
 
-### 5. コミット差分の確認
+## 3. 利用者の依頼後にノートと記録を確定
 
-タグを付与する main 上の結果コミットと、工程2で実機試験に用いた候補コミットとの差分を確認する。
+全必要試験を完了し、試験結果の文書コミットを作った後、利用者がノート作成を依頼した場合に限り、`release-notes/vX.Y.Z.md` の placeholder を利用者向け Markdown に置き換えます。ノートは後続の別コミットにします。タイトル・本文の書式は `AGENTS.md`「Release notes」に従います。内部監査ログや matrix を本文へ複製しません。事実誤りや書式違反があれば同じ執筆担当へ差し戻して直します。
+
+`release-notes/vX.Y.Z.json` には [記録形式](release-record.md) に従って、ノートの SHA-256、候補と再現性確認の run 情報、全アセットの hash、実機・仕様変更試験・soak 判断・support 表示・公開前レビューの証拠を記録します。証拠が揃わない gate は `completed` にしません。soak の実施有無・時間・対象の判断は利用者のものであり、workflow はその妥当性や物理測定を自動認定しません。
+
+許可された結果コミットを対象ブランチへ取り込み、候補からの差分が文書だけであることを確認します。ソースのファイル構成・type・mode・symlink target を維持し、コード、script、workflow、build input、firmware を変えません。機械可読記録やノートも source inventory の一部です。これらを追加し忘れた場合は inventory の関門を緩めず、新 candidate と必要な再確認へ戻ります。
+
+## 4. 別の「タグ＋リリース」依頼後にタグを push
+
+利用者が対象版と結果コミットについてタグ付け・公開を依頼した後だけ、未使用の `vX.Y.Z` を作成します。以下の `<result-commit>` は試験結果コミットと後続のノートコミットの両方を含む最終コミットです。`VERSION` とタグの版を一致させ、既存タグを移動・上書きしません。
 
 ```sh
 git diff --stat <candidate-commit> <result-commit>
-```
-
-差分が文書ファイル（`README.md`、`SPEC.md`、`docs/platforms/validation-results.md`、`docs/release-validation.md` 等）のみに限定されていることを確認する。
-
-### 6. リリースタグの付与と push
-
-main ブランチ上の結果コミットに対し、注釈付きタグ（annotated tag）を作成してリモートへ push する。
-
-- タグ名形式: `vX.Y.Z`
-- タグメッセージ: `px4-userland vX.Y.Z`
-- 署名: なし
-
-```sh
 git tag -a vX.Y.Z -m "px4-userland vX.Y.Z" <result-commit>
 git push origin vX.Y.Z
 ```
 
-### 7. release CI の完了確認
+タグは注釈付き・署名なしです。タグ push により `build_userland.yml` の tag run と、公開用 `release_tag.yml` が始まります。通常の branch/PR CI や `workflow_dispatch` は Release を公開しません。
 
-タグの push を契機として `build_userland.yml`（release CI）が起動する。
+## 5. 自動照合、Draft、公開
 
-- tag run の全ジョブが正常に成功したことを確認する（必須条件）。
-- （参考: GitHub Actions では tag push に対して paths filter が評価されないため、tag run は常に起動する。一方、main ブランチへの push は paths filter があるため run の起動は保証されない。v0.1.10 や v0.2.0 で main run が起動したのは取り込んだ変更に `README.md` が含まれていたためである。main push run が起動した場合はその完了も合わせて確認する）。
+`release_tag.yml` は PX4 側の共通 `release_reusable.yml` を使用します。ASICEN から使う共通 workflow/helper は full commit SHA に固定し、浮動 branch/tag を参照しません。公開されている PX4 の参照に新しい token や Environment 承認を要求しません。
 
-### 8. tag CI アーティファクトの取得と外側チェックサム確認
+共通 workflow は、同じ repository、正確な tag SHA/ref、`build_userland.yml`、`push` に対応した成功 run を確認します。候補/再現性 run についても repository、workflow、SHA、attempt、成功状態と実アーティファクトを照合します。run 未完了・失敗、artifact 期限切れ・欠落、入力不一致は公開を止める理由です。
 
-タグ run で生成された `release-candidate` アーティファクトを新しい空ディレクトリへダウンロードし、外側チェックサムを検証する。
+照合では、候補 2 run の完全 byte 一致と、候補対 tag archive の展開後 inventory/type/mode/symlink target を確認します。実行ファイル・共有ライブラリ・ランチャー等の文書以外の payload は byte-identical が必須です。許容差は更新文書、文書と commit/tree に由来する明示的な manifest 項目、内側 checksum に限定します。未知の metadata 変更や未分類の差を見逃す allowlist は追加しません。
 
-```sh
-gh run download <tag-run-id> --name release-candidate --dir <tag-artifact-dir>
-(cd <tag-artifact-dir> && sha256sum -c SHA256SUMS)
-```
+最初の検証 job は read-only です。公開 job だけが `contents: write` を持ち、再照合してから以下を実行します。
 
-10件のアーカイブすべてに対して `OK` が返ることを確認する。main push run が存在する場合には、補助的な確認として main run 側のアーティファクトとの byte 一致も確認する（公開可否を決定する関門は工程9の候補アーカイブとの照合である）。
+1. `vX.Y.Z` をタイトル、コミット済み Markdown の正確な内容を本文とする Draft を作成し、tag run の 11 アセットを添付
+2. Draft から新しい空ディレクトリへ再取得し、全ファイルの byte 一致、10 件の checksum、タイトル・本文を確認
+3. Draft を解除して Stable/Latest として公開
+4. 公開済みアセットを別の空ディレクトリへ再取得し、同じ照合と Latest 状態を確認
 
-### 9. 候補アーティファクトとのペイロード照合（公開関門）
+既存の同一 Release は一致を確認して再実行を継続できますが、異なる本文・アセット・タグを上書きして合わせません。不一致では停止し、原因と現状を報告します。
 
-公開可否を決定する関門として、[`docs/release-validation.md`](release-validation.md) §2 工程5 に従い、tag run のアーカイブと工程2で実機試験した候補アーカイブを展開して比較する。
+## 6. 結果の確認と記録
 
-照合条件:
-- 全ファイル構成（inventory）、ファイル種別（type）、権限（mode）、シンボリックリンク先が一致すること。
-- 実行ファイル、共有ライブラリ、ランチャー、その他全ペイロードが byte-identical であること。
-- 差分は以下のファイルのみに限定されること:
-  - バイナリアーカイブ: `README.md`、`manifest.json`（`source_ref` および `README.md` のエントリハッシュ・サイズ）、内側 `SHA256SUMS`
-  - ソースアーカイブ: `repository/` 配下の更新文書、トップレベル `README.md`、`BUILD-RELINK.md`（記録コミットおよびツリー行）、`source-manifest.json`（コミット・ツリーおよび該当ファイルのハッシュ・サイズ）、内側 `SHA256SUMS`
+公開 workflow の成功だけでなく、その出力から tag SHA、candidate/reproduction/tag run ID、inventory/hash、Draft/公開後照合、Release URL と Latest 状態を確認します。公開後照合が失敗した場合は「公開されたが検証未完了」と区別し、成功と報告しません。公開済みタグやアセットを修正のために置き換えません。
 
-上記以外の差分が検出された場合は公開を中断し、原因を調査する。
-
-### 10. リリースノートの準備と GitHub Release の作成（Draft）
-
-公開用のリリースノートを準備し、GitHub Release を Draft として作成する。
-
-- リリースノートの記述規則は [`AGENTS.md`](../AGENTS.md)「Release notes」節に従う（タイトルは `vX.Y.Z`、本文先頭見出しは `px4-userland vX.Y.Z`、概要は敬体、主な変更・検証・既知の制限は常体の箇条書き、謝辞は敬体）。
-- リリースノートは日本語執筆担当が作成する。レビューで見つかった事実の誤りや規則違反は、同じ執筆担当の会話へ差し戻して修正する（新しい会話を立てずに同一の会話で直す）。
-- tag run から取得した11ファイルすべてを添付して draft を作成する。
-
-```sh
-gh release create vX.Y.Z \
-  --verify-tag \
-  --draft \
-  --title "vX.Y.Z" \
-  --notes-file <path-to-notes-file> \
-  <path-to-11-files...>
-```
-
-### 11. Draft アセットの再取得と照合
-
-作成した Draft のアセットを新しい空ディレクトリへダウンロードし、アップロード内容を検証する。
-
-```sh
-gh release download vX.Y.Z --dir <draft-verify-dir>
-(cd <draft-verify-dir> && sha256sum -c SHA256SUMS)
-```
-
-- ダウンロードした11ファイルが、tag run のアーティファクトとそれぞれ byte 一致することを確認する。
-- チェックサム照合で10件すべて `OK` となることを確認する。
-- Release 本文が準備したリリースノートと一致することを確認する。
-
-### 12. GitHub Release の公開
-
-Draft を解除し、正式な Latest リリースとして公開する。
-
-```sh
-gh release edit vX.Y.Z --draft=false --latest
-```
-
-公開完了後、アセットを別の新しい空ディレクトリへ再ダウンロードし、工程11と同様に byte 一致とチェックサム検証（10件 OK）を確認する。
-
-### 13. 公開後記録の反映
-
-公開に伴う照合証拠を [`docs/platforms/validation-results.md`](platforms/validation-results.md) の該当リリース節に記録し、main ブランチへ直接 push する。
-
-- 記録項目: tag CI run ID、main run ID、両 run アーティファクトの一致、runner image バージョン、候補アーティファクトとのペイロード比較結果、公開日時、公開アセットの再検証結果、ローカル照合証拠の配置場所。
-- コミットは main ブランチへ直接 push する。
-- 公開済みのタグおよびリリースアセットは固定として維持する。
+公開日時、照合結果、ログの所在を [実測記録](../docs/platforms/validation-results.md) に追記し、commit/push は利用者の依頼に従います。この後続記録のためにタグを移動せず、公開物は固定します。
