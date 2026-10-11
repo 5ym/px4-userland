@@ -6,14 +6,16 @@ Stable releaseは次の順で進める。
 
 1. リリース候補のsource commitを固定し、そのcommitからCIでcandidate artifactを作る。
 2. candidate artifactを展開し、必要な全OS/architectureで実機試験と仕様変更の試験を完了する。
-3. 試験結果を文書に記録してcommitする。
-4. その結果commitにタグを付け、release CIを実行して公開する（公開手順は [`releasing.md`](releasing.md) を参照）。
+3. 全必要試験の完了後、ユーザーがノート作成を依頼したら `release-notes/vX.Y.Z.md` を書く。試験結果と機械可読記録を文書だけのcommitへまとめる。
+4. 別の「タグ＋リリース」依頼の後だけ、その結果commitにタグを付ける。tag buildと独立した公開workflowが照合・Draft・公開・公開後照合を行う（[`releasing.md`](releasing.md)）。追加のEnvironment手動承認は設けない。
 
 工程2の全試験が完了するまではcandidate commitを固定して使う。工程2の完了後、工程3で試験結果を記録するcommitは次工程への移行であり、candidateの差し替えではない。工程3の結果commit後に工程2へ戻って実機試験を繰り返さない。candidateのsource、package、build inputを工程2の完了前に変更した場合は、その変更を含む新candidateをCIで作り、影響する試験を行う。
 
 配布する各主要OS/architecture binary artifactについて、工程2でfinal candidateの実機確認を行う。必須検証の一連の操作に総時間上限は設けない。物理抜差しをユーザーに依頼した時点から、その操作への応答を最大5分待つ。各依頼の直前にHAOS側でCodexは`beep`、Claude Codeは`vibe`を実行する。5分を超える連続負荷試験は別のsoak手順にする。安定性に影響し得る変更のsoak有無、時間（10分/30分/2時間）、対象OSはユーザーが決める。エージェントは変更差分・過去記録・影響し得る範囲を要約し、判断を待つ。検証状態の語彙は `継承` / `今回再検証` / `未認定` / `対象外` に統一する。
 
 ## 0. 配布artifact matrixと手順の共通部品
+
+PX4/ASICEN共通の記録構造と空のmatrixは [`release-record.md`](release-record.md) に定める。各行へ候補SHA・CI run/attempt・artifact ID・archive hash、OS/architecture、実際のhost/access path、model/feature、状態・結果・証拠・soak判断を対応付ける。共通形式は以下のPX4固有の試験や機種別受入条件を変更しない。
 
 短時間確認は以下のartifactごとに実施する。soak対象OSはユーザーが決める。AppArmor、usbip、SELinux などの変化は独立した環境IDにせず、その環境のaccess pathとして記録する。各環境のproduct-specificな準備と物理操作は§6に示す。
 
@@ -252,7 +254,7 @@ receiver 7 で TEI/continuity burst が出て、SPEC 10.2.6a の比較条件（�
 
 ## 1. 候補と前回証拠を固定する
 
-1. 候補の `VERSION`、GitHub 上の source commit、candidate workflow run を特定する。dirty な作業ツリーや未 push のローカル変更を候補として試験しない。
+1. 候補の `VERSION`、GitHub 上の source commit、candidate workflow run を特定する。候補固定前に同版の `release-notes/vX.Y.Z.md` / `.json` の無効なplaceholderだけを用意し、source inventoryへ含める（[`release-notes/README.md`](../release-notes/README.md)）。ノート本文や合格を先に書かない。dirty な作業ツリーや未 push のローカル変更を候補として試験しない。
 2. 前回 Stable 以降の累積差分と、今回使う baseline evidence を確認する。差分をファイル名だけで判断せず、SPEC 10.5.1 の変更分類と実際の呼出経路・依存先から model/profile・runtime/access path・feature の影響範囲を決める。
 3. 対象 claim ごとに `継承`、`今回再検証`、`未認定`、`対象外` のいずれかを記録し、根拠を書く。証拠の軸は SPEC 10.2.8 に従う。別 model、別 OS/runtime、別 access path、別 feature へ結果を外挿しない。同一 model・同一 runtime/access path・同一 feature の証拠は、対象 artifact の bytes が baseline と同一であるか、変更がその path へ影響しないと 10.5.1 の表で判定できる場合に継承できる。未知の影響は affected として扱い、`対象外` は SPEC の対象外または本手順 §0 の対象外に限る。
 4. 前回の適格なlong soakの日付やrelease数は事実情報として記録できるが、エージェントがsoak有無・時間・OSを決める規則として使わない。
@@ -267,7 +269,7 @@ Termuxのarchitecture、Termux launcherのFD path、glibc/musl、native PC/SC ad
 2. workflow 内の unit/offline test、各 target build、source/relink、`release-candidate` と、それに依存する4つの Ubuntu/Alpine × x86_64/aarch64 artifact smoke job、Windows cross-build/PE audit/packaging job、および同じWindows ZIPを実行するWindows native offline test job がすべて成功していることを確認する。失敗 job を無視して先へ進まない。`release-candidate` はWindows cross-buildとnative testの両方に依存し、native testが消費したものと同一のWindows ZIPを取り込む。test executable artifactは取り込まない。
 3. `release-candidate` artifact が候補 commit の `source_ref` を示し、9 binary archive（8 tar archiveとWindows ZIP 1つ）と対応 source archiveの計10 archive、およびその外側 `SHA256SUMS`（10件）を含むことを確認する。チェックサムを照合し、CIの manifest・license・corresponding-source・binary/source archive audit（Windows ZIPのPE/import/archive監査を含む）が通っていることを確認する。
 4. 工程2の試験完了前に候補source commitが変わった場合は、そのcommitのCIとartifactを取り直す。前のcommitのarchive、手元で別途作ったbuild、PR runの古いartifactを新candidateの代用にしない。工程3の試験結果commitは候補source commitの変更ではなく、工程4ではその結果commitにタグを付けてrelease CIを実行する。
-5. release CIが生成した9 binary archiveを展開し、実機試験に使ったfinal candidate archiveと各payloadを比較する。更新された`README.md`、それを反映した`manifest.json`の`source_ref`およびREADMEのhash、内側の`SHA256SUMS`以外に差があれば公開を止めて原因を調べる。source archiveは工程3の記録commitを含むためbinary candidateのsource archiveとは異なる。比較したrun、archive、差異の判定をrelease recordへ記録する。
+5. tag CIが生成した9 binary archiveを、実機試験に使ったfinal candidate archiveと比較する。inventory/type/mode/linkと全非文書payloadが一致することを要求する。binaryは更新された`README.md`、それを反映した`manifest.json`の`source_ref`およびREADMEのhash/size、内側`SHA256SUMS`だけを許す。source archiveは結果commitの明示的に許可された文書、commit/tree identity、それらのmanifest項目とchecksumだけを許す。source側のノート・記録も同じinventoryを維持する。公開workflowの共通検査が候補2runとtagを照合する。範囲と停止条件は [`releasing.md`](releasing.md)、記録は [`release-record.md`](release-record.md) に従う。
 
 手動dispatchとartifact取得には次の短いCLI手順を使える。`<candidate-ref>`、`<run-id>`、`<new-empty-dir>`を実際の値へ置き換え、artifactは新しい空ディレクトリへ展開する。既に成功済みの自動runが候補commitと一致するなら再dispatchしない。
 

@@ -4,7 +4,9 @@
 
 ## 記録方法
 
-Stable release の検証記録は本ファイルへ日付付きで追記する。新しい records directory や template framework、汎用スクリプトは作らない。release record には候補 version/commit/CI run、10 archive（9 binary + source。binaryは8 tar archiveとWindows ZIP）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、canary/soak の選定理由（環境ID E01–E17、固定順の位置、単一OS規則による非該当を含む）、各 test の環境ID・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
+Stable release の実測記録は本ファイルへ日付付きで追記する。共通の記入構造は [`release-record.md`](../release-record.md) を使う。公開照合のため、同版の `release-notes/vX.Y.Z.json` に exact candidate/reproduction run・artifact・hash と本記録の参照を持たせる。この限定した sidecar 以外に records directory や汎用 template framework、実機試験をまとめる巨大 script は作らない。
+
+release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 archive（9 binary + source。binaryは8 tar archiveとWindows ZIP）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、soakの有無・時間・対象OSについてのユーザー決定、各 test の環境ID・OS/architecture・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。失敗試行と過去版に限定した受入判断を保持し、機械可読の完了表明を実測の代わりにしない。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 

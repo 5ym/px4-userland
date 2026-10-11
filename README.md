@@ -545,6 +545,10 @@ Microsoft PC/SC IFD登録はPhase 2以降の対象とする。
 - `-DPX4_BUILD_PCSC_IFD=ON|OFF`（既定値: ON）: PC/SC IFD Handler のビルド
 - `-DPX4_BUILD_TESTS=ON|OFF`（既定値: OFF）: テストのビルド
 
+## リリース作業
+
+検証する candidate と公開する tag CI の成果物を区別し、必要試験、依頼後のノート作成、別の「タグ＋リリース」依頼の順に進めます。[公開手順](docs/releasing.md)、[実機検証手順](docs/release-validation.md)、[matrix・記録形式](docs/release-record.md)、[コミット済みノートの方針](release-notes/README.md)を参照してください。公開workflowの成功は新しい機種・環境の実機認定を意味しません。
+
 ## ライセンス
 
 本ソフトウェアは [GPL-2.0-only](LICENSE) の下で公開されています。
