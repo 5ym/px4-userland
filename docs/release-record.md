@@ -50,7 +50,7 @@ PX4 と ASICEN で、工程、証拠の語彙、matrix の記録構造、公開�
 | `android-aarch64` | E05 | Android aarch64 | Termux / launcher / FD | 未記録 | 未認定 | 未実施 | 未記録 |
 | `android-armv7a` | E06 | Android armv7a | Termux / launcher / FD | 未記録 | 未認定 | 未実施 | 未記録 |
 | `android-x86_64` | E07 | Android x86_64 | Termux / launcher / FD | 未記録 | 未認定 | 未実施 | 未記録 |
-| `windows-x86_64` | E17 | Windows 11 x64 | native libusb / CARD_* | 未記録 | 未認定 | 未実施 | 未記録 |
+| `windows-x86_64` | E17 | Windows 11 x64 | native libusb / CARD_* / application-local WinSCard（SPEC 7.6） | 未記録 | 未認定 | 未実施 | 未記録 |
 
 Windows は必須配布行です。FreeBSD と Android APK は対象外です。firmware は配布 inventory に含めません。
 
