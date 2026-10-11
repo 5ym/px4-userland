@@ -827,7 +827,7 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
         return values.ToArray();
       }
     }
-"@
+    "@
     Add-Type -TypeDefinition $nativeSource -Language CSharp
     function Format-ScardCode([int]$Code) {
       $raw = [BitConverter]::GetBytes([int]$Code)
