@@ -2295,7 +2295,8 @@ Result<std::unique_ptr<PosixControlServer>> PosixControlServer::create(
         return Result<std::unique_ptr<PosixControlServer>>::failure(
             stream_listener.error());
     }
-    auto workers = ControlWorkerLanes::create(card_service, tuner_service);
+    auto workers = ControlWorkerLanes::create(card_service, tuner_service,
+                                             endpoint.runtime_directory);
     if (!workers) {
         // listener remains owned here and therefore closes/unlinks the endpoint
         // transactionally before returning the worker startup error.

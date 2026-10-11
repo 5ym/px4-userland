@@ -1004,7 +1004,9 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
   unsupportedとしてargument validationで失敗させる。
 - endpoint pathはWindows AF_UNIXのbyte長上限を検査し、Unicode pathを明示的に扱う。
   serial/instance排他（SerialEndpointLease相当）をWindowsにも実装し、same-serial safetyを落とさない。
-- worker wakeはpoll可能なsocketで実装する。nonceはBCryptGenRandomを用いる。
+- worker wakeはpoll可能なsocketで実装する。明示されたruntime directoryはworker wakeにも渡し、
+  別のLOCALAPPDATAへ依存・fallbackしない。runtime parent未指定時だけ従来のLOCALAPPDATAを用い、
+  private directory・owner・trusted writer・file identityの安全検証を維持する。nonceはBCryptGenRandomを用いる。
 - shutdownはSetConsoleCtrlHandlerとcooperative parent-stop契約を提供する。親プロセス（.NET/denpa等）は
   `px4d`の標準入力をcloseまたはEOFにして停止を要求でき、`px4d`は`--exit-on-stdin-eof` opt-in時に
   stdin EOFを受けて通常のcleanup（LNB 0V、endpoint削除）を実行してから終了する。Ctrl+C等のconsole

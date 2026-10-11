@@ -107,7 +107,7 @@ public:
     WakePipe() noexcept = default;
     ~WakePipe() noexcept { close(); }
 
-    Result<void> open() noexcept
+    Result<void> open(const char* /* runtime_directory */) noexcept
     {
         int descriptors[2] = {-1, -1};
         while (::pipe(descriptors) != 0) {
@@ -265,17 +265,31 @@ public:
     WakePipe() noexcept = default;
     ~WakePipe() noexcept { close(); }
 
-    Result<void> open() noexcept
+    Result<void> open(const char* runtime_directory) noexcept
     {
         if (!ensure_winsock()) {
             return Result<void>::failure(Error::INTERNAL);
         }
         std::array<wchar_t, MAX_PATH> base{};
-        const DWORD base_length =
-            ::GetEnvironmentVariableW(L"LOCALAPPDATA", base.data(),
-                                      static_cast<DWORD>(base.size()));
-        if (base_length == 0U || base_length >= base.size()) {
-            return Result<void>::failure(Error::INTERNAL);
+        if (runtime_directory == nullptr) {
+            const DWORD base_length =
+                ::GetEnvironmentVariableW(L"LOCALAPPDATA", base.data(),
+                                          static_cast<DWORD>(base.size()));
+            if (base_length == 0U || base_length >= base.size()) {
+                return Result<void>::failure(Error::INTERNAL);
+            }
+        } else {
+            // Reject empty, overlong or malformed UTF-8 rather than truncate
+            // it or fall back to a different runtime namespace.
+            constexpr std::size_t max_utf8 = MAX_PATH * 4U;
+            std::size_t length = 0U;
+            while (length < max_utf8 && runtime_directory[length] != '\0') ++length;
+            if (length == 0U || length == max_utf8 ||
+                ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                      runtime_directory, static_cast<int>(length),
+                                      base.data(), static_cast<int>(base.size() - 1U)) <= 0) {
+                return Result<void>::failure(Error::INTERNAL);
+            }
         }
         // Require a drive-absolute local path; never a relative or truncated
         // one that could resolve elsewhere.
@@ -981,17 +995,18 @@ ControlWorkerLanes::ControlWorkerLanes(std::unique_ptr<Impl> impl) noexcept
 }
 
 Result<std::unique_ptr<ControlWorkerLanes>> ControlWorkerLanes::create(
-    CardService& card_service, TunerService& tuner_service) noexcept
+    CardService& card_service, TunerService& tuner_service,
+    const char* runtime_directory) noexcept
 {
 #if defined(PX4_CONTROL_WORKERS_TEST_ACCESS)
     if (test_startup_options != nullptr) {
         ControlWorkerStartupOptions* options = test_startup_options;
         test_startup_options = nullptr;
-        return create_for_test(card_service, tuner_service, *options);
+        return create_for_test(card_service, tuner_service, *options, runtime_directory);
     }
 #endif
     auto impl = std::unique_ptr<Impl>(new Impl(card_service, tuner_service));
-    if (!impl->wake.open()) {
+    if (!impl->wake.open(runtime_directory)) {
         return Result<std::unique_ptr<ControlWorkerLanes>>::failure(Error::INTERNAL);
     }
     const std::array<ControlWorkerLane, 3U> lane_ids{
@@ -1031,11 +1046,11 @@ void ControlWorkerLanes::set_test_startup_options(
 
 Result<std::unique_ptr<ControlWorkerLanes>> ControlWorkerLanes::create_for_test(
     CardService& card_service, TunerService& tuner_service,
-    const ControlWorkerStartupOptions& options) noexcept
+    const ControlWorkerStartupOptions& options, const char* runtime_directory) noexcept
 {
     auto impl = std::unique_ptr<Impl>(
         new Impl(card_service, tuner_service, &options));
-    if (options.fail_wake_pipe || !impl->wake.open()) {
+    if (options.fail_wake_pipe || !impl->wake.open(runtime_directory)) {
         return Result<std::unique_ptr<ControlWorkerLanes>>::failure(Error::INTERNAL);
     }
     const std::array<ControlWorkerLane, 3U> lane_ids{

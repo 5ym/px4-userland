@@ -133,11 +133,15 @@ struct ControlWorkerCompletion final {
 class ControlWorkerLanes final {
 public:
     static Result<std::unique_ptr<ControlWorkerLanes>> create(
-        CardService& card_service, TunerService& tuner_service) noexcept;
+        CardService& card_service, TunerService& tuner_service,
+        const char* runtime_directory = nullptr) noexcept;
+    // Windows wake sockets use this UTF-8 runtime parent. Only nullptr selects
+    // LOCALAPPDATA (for standalone callers); POSIX wake pipes ignore it.
 #if defined(PX4_CONTROL_WORKERS_TEST_ACCESS)
     static Result<std::unique_ptr<ControlWorkerLanes>> create_for_test(
         CardService& card_service, TunerService& tuner_service,
-        const ControlWorkerStartupOptions& options) noexcept;
+        const ControlWorkerStartupOptions& options,
+        const char* runtime_directory = nullptr) noexcept;
     static void set_test_startup_options(
         ControlWorkerStartupOptions* options) noexcept;
 #endif

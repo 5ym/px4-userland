@@ -10,6 +10,7 @@
 #include "px4/control_server.h"
 #include "px4/tuner_service.h"
 #include "card_client_contract_tests.h"
+#include "control_workers.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -150,7 +151,7 @@ public:
     }
 };
 
-std::string unique_runtime_dir()
+std::string unique_runtime_dir(bool unicode = false)
 {
     std::array<wchar_t, MAX_PATH> base{};
     const DWORD base_length =
@@ -168,7 +169,7 @@ std::string unique_runtime_dir()
         }
         const std::filesystem::path path =
             std::filesystem::path(base.data()) /
-            (std::wstring(L"px4t-") + token.data());
+            (std::wstring(unicode ? L"px4t-\u65e5-" : L"px4t-") + token.data());
         std::error_code error;
         if (std::filesystem::exists(path, error)) {
             continue;
@@ -184,9 +185,8 @@ std::string unique_runtime_dir()
     return {};
 }
 
-bool test_control_round_trip()
+bool test_control_round_trip(const std::string& runtime)
 {
-    const std::string runtime = unique_runtime_dir();
     if (runtime.empty()) {
         std::fprintf(stderr, "stage fixture: runtime dir unavailable\n");
         CHECK(false);
@@ -276,11 +276,144 @@ bool test_control_round_trip()
     return true;
 }
 
+// Test-only environment changes are made before worker threads are started,
+// then restored after every worker/server has been destroyed.
+class ScopedLocalAppData final {
+public:
+    ScopedLocalAppData()
+    {
+        ::SetLastError(ERROR_SUCCESS);
+        const DWORD length = ::GetEnvironmentVariableW(
+            L"LOCALAPPDATA", saved_.data(), static_cast<DWORD>(saved_.size()));
+        present_ = length != 0U || ::GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+        valid_ = length < saved_.size();
+    }
+    ~ScopedLocalAppData()
+    {
+        if (valid_) CHECK(::SetEnvironmentVariableW(
+            L"LOCALAPPDATA", present_ ? saved_.data() : nullptr) != 0);
+    }
+    bool valid() const noexcept { return valid_; }
+    bool set(const std::filesystem::path& path) noexcept
+    {
+        return valid_ && ::SetEnvironmentVariableW(L"LOCALAPPDATA", path.c_str()) != 0;
+    }
+    bool matches(const std::filesystem::path& path) const noexcept
+    {
+        std::array<wchar_t, 32768U> value{};
+        const DWORD length = ::GetEnvironmentVariableW(
+            L"LOCALAPPDATA", value.data(), static_cast<DWORD>(value.size()));
+        return length < value.size() && path == std::filesystem::path(value.data());
+    }
+private:
+    std::array<wchar_t, 32768U> saved_{};
+    bool present_ = false;
+    bool valid_ = false;
+};
+
+bool add_untrusted_capability_writer(const std::filesystem::path& path)
+{
+    SECURITY_ATTRIBUTES attributes{};
+    SECURITY_DESCRIPTOR descriptor{};
+    PACL owner_acl = nullptr;
+    windows_security::SidBuffer owner{};
+    if (!windows_security::build_current_user_security(
+            attributes, descriptor, owner_acl, owner)) return false;
+    windows_security::SidBuffer capability{};
+    DWORD size = sizeof(capability.bytes);
+    const BOOL made = ::CreateWellKnownSid(
+        WinCapabilityInternetClientSid, nullptr, capability.bytes, &size);
+    EXPLICIT_ACCESS_W access{};
+    access.grfAccessPermissions = FILE_WRITE_DATA;
+    access.grfAccessMode = GRANT_ACCESS;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(capability.bytes);
+    PACL combined = nullptr;
+    const bool ok = made != 0 &&
+        ::SetEntriesInAclW(1U, &access, owner_acl, &combined) == ERROR_SUCCESS &&
+        ::SetNamedSecurityInfoW(const_cast<wchar_t*>(path.c_str()), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, combined, nullptr) == ERROR_SUCCESS;
+    if (combined != nullptr) ::LocalFree(combined);
+    ::LocalFree(owner_acl);
+    return ok;
+}
+
+void test_runtime_directory_selection()
+{
+    const std::string runtime = unique_runtime_dir(true);
+    const std::string rejected_runtime = unique_runtime_dir();
+    CHECK(!runtime.empty() && !rejected_runtime.empty());
+    if (runtime.empty() || rejected_runtime.empty()) return;
+    const auto good = std::filesystem::u8path(runtime);
+    const auto bad = std::filesystem::u8path(rejected_runtime);
+    CHECK(add_untrusted_capability_writer(bad));
+    CHECK(windows_security::verify_runtime_parent(good.c_str()));
+    CHECK(!windows_security::verify_runtime_parent(bad.c_str()));
+    {
+        ScopedLocalAppData environment;
+        CHECK(environment.valid());
+        CHECK(environment.set(bad));
+        // The complete server/worker IPC path must honor the explicit UTF-8
+        // runtime, even when ambient LOCALAPPDATA fails trusted-writer checks.
+        CHECK(test_control_round_trip(runtime));
+        CHECK(environment.matches(bad));
+
+        CardBackend card_backend;
+        CardSession card_session;
+        CardService card_service(card_backend, card_session);
+        TunerBackend tuner_backend;
+        Nonce nonce;
+        Time time;
+        TunerService tuner_service(tuner_backend, nonce, time);
+        auto explicit_good = ControlWorkerLanes::create(
+            card_service, tuner_service, runtime.c_str());
+        CHECK(explicit_good);
+        if (explicit_good) explicit_good.value().reset();
+        const auto default_bad = ControlWorkerLanes::create(card_service, tuner_service);
+        CHECK(!default_bad);
+        CHECK(environment.matches(bad));
+
+        CHECK(environment.set(good));
+        const auto explicit_bad = ControlWorkerLanes::create(
+            card_service, tuner_service, rejected_runtime.c_str());
+        CHECK(!explicit_bad);
+        const EndpointConfig rejected{rejected_runtime.c_str(), "rejected",
+            kControlEndpointName, EndpointAccess::private_user};
+        CHECK(!PosixControlServer::create(rejected, card_service, tuner_service,
+            "000000000012345", true, 0x03U, nullptr, kQ3U4ReceiverCount, false));
+        // No fallback for explicit empty/relative/malformed/truncated values.
+        const std::array<std::string, 6U> invalid{
+            "", ".", "C:relative", std::string("C:\\\xc0\xaf"),
+            std::string(MAX_PATH * 4U, 'x'), runtime + std::string(MAX_PATH, 'x')};
+        for (const auto& path : invalid) {
+            CHECK(!ControlWorkerLanes::create(card_service, tuner_service, path.c_str()));
+        }
+        auto default_good = ControlWorkerLanes::create(card_service, tuner_service);
+        CHECK(default_good);
+        if (default_good) default_good.value().reset();
+        const EndpointConfig fallback{nullptr, "fallback", kControlEndpointName,
+            EndpointAccess::private_user};
+        auto default_server = PosixControlServer::create(fallback, card_service,
+            tuner_service, "000000000012345", true, 0x03U, nullptr,
+            kQ3U4ReceiverCount, false);
+        CHECK(default_server);
+        if (default_server) default_server.value().reset();
+        CHECK(environment.matches(good));
+    }
+    CHECK(windows_security::set_current_user_owner_and_dacl(bad.c_str()));
+    // Never hide a leaked endpoint or wake directory with recursive cleanup.
+    std::error_code error;
+    CHECK(std::filesystem::remove(good, error) && !error);
+    error.clear();
+    CHECK(std::filesystem::remove(bad, error) && !error);
+}
+
 }  // namespace
 
 int main()
 {
-    test_control_round_trip();
+    test_runtime_directory_selection();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
