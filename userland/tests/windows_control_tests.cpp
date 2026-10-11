@@ -59,6 +59,13 @@ class CardSession final : public CardProtocolSession {
 public:
     Result<void> initialize() noexcept override
     {
+        // A successfully initialized session must expose an ATR, including
+        // through the shared CARD_HANDLE_STATUS response codec.
+        atr_.bytes[0] = 0x3bU;
+        atr_.bytes[1] = 0x80U;
+        atr_.bytes[2] = 0x01U;
+        atr_.bytes[3] = 0x81U;
+        atr_.length = 4U;
         initialized_ = true;
         return Result<void>::success();
     }

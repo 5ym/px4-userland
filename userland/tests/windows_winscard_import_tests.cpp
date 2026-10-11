@@ -27,6 +27,17 @@ template <typename T> HMODULE module_of(T address)
                               pointer,&module) != 0);
     return module;
 }
+template <typename T> void check_function_import(HMODULE proxy, const char* name, T address)
+{
+    // MinGW can expose the EXE's import thunk as a function's C++ address;
+    // MSVC normally exposes the resolved DLL address. The build-time PE audit
+    // requires every named import below under the WinSCard.dll descriptor.
+    const HMODULE linked = module_of(address);
+    CHECK(linked == proxy || linked == ::GetModuleHandleW(nullptr));
+    const auto resolved = ::GetProcAddress(proxy,name);
+    CHECK(resolved != nullptr);
+    if (resolved != nullptr) CHECK(module_of(resolved) == proxy);
+}
 bool same_file(const wchar_t* a, const wchar_t* b)
 {
     const HANDLE left = ::CreateFileW(a,FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
@@ -45,14 +56,21 @@ bool same_file(const wchar_t* a, const wchar_t* b)
 }
 int main()
 {
-    const HMODULE proxy = module_of(&SCardEstablishContext);
-    CHECK(module_of(&SCardReleaseContext) == proxy);
-    CHECK(module_of(&SCardListReadersA) == proxy && module_of(&SCardListReadersW) == proxy);
-    CHECK(module_of(&SCardConnectA) == proxy && module_of(&SCardConnectW) == proxy);
-    CHECK(module_of(&SCardDisconnect) == proxy && module_of(&SCardTransmit) == proxy);
-    CHECK(module_of(&SCardIsValidContext) == proxy && module_of(&SCardFreeMemory) == proxy);
-    CHECK(module_of(&SCardStatusW) == proxy && module_of(&SCardGetStatusChangeW) == proxy);
-    CHECK(module_of(&g_rgSCardT1Pci) == proxy);
+    // DATA imports have no executable thunk and identify the actual provider.
+    const HMODULE proxy = module_of(&g_rgSCardT1Pci);
+    CHECK(proxy != ::GetModuleHandleW(nullptr));
+    check_function_import(proxy,"SCardEstablishContext",&SCardEstablishContext);
+    check_function_import(proxy,"SCardReleaseContext",&SCardReleaseContext);
+    check_function_import(proxy,"SCardListReadersA",&SCardListReadersA);
+    check_function_import(proxy,"SCardListReadersW",&SCardListReadersW);
+    check_function_import(proxy,"SCardConnectA",&SCardConnectA);
+    check_function_import(proxy,"SCardConnectW",&SCardConnectW);
+    check_function_import(proxy,"SCardDisconnect",&SCardDisconnect);
+    check_function_import(proxy,"SCardTransmit",&SCardTransmit);
+    check_function_import(proxy,"SCardIsValidContext",&SCardIsValidContext);
+    check_function_import(proxy,"SCardFreeMemory",&SCardFreeMemory);
+    check_function_import(proxy,"SCardStatusW",&SCardStatusW);
+    check_function_import(proxy,"SCardGetStatusChangeW",&SCardGetStatusChangeW);
     CHECK(sizeof(g_rgSCardT1Pci) == 8U && SCARD_PCI_T1->dwProtocol == 2U && SCARD_PCI_T1->cbPciLength == 8U);
     std::array<wchar_t,32768U> executable{}, actual{}, system{};
     CHECK(::GetModuleFileNameW(nullptr,executable.data(),static_cast<DWORD>(executable.size())) != 0);
