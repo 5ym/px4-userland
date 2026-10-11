@@ -1,9 +1,15 @@
 # px4-userland 仕様
 
-Status: Frozen v0.35 (2026-10-11)
+Status: Frozen v0.36 (2026-10-11)
 
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
+
+### v0.36 change record (2026-10-11)
+
+- TS continuityの汎用判定をheader-only C++17 componentへ分離する。payloadのduplicate pairと
+  adaptation-only packetのdiscontinuity indicatorによる誤計数を修正し、PCR値の例外、TEIと不正headerの
+  boundedな扱いを明示する。IT930x固有の起動境界・stabilization、配信・lease lifecycleは変更しない。
 
 ### v0.35 change record (2026-10-11)
 
@@ -864,6 +870,31 @@ HELLO responseのcapabilitiesはrequestとserver対応bitの積集合とする�
 
 `LIST`/`STATUS`のreserved countやmask、ATR上限、receiver ID、enum範囲を受信側で検証する。上記layoutから
 golden byte vectorを作り、異なる言語でencode/decodeしたvectorの一致をprotocol v1の受入条件とする。
+
+#### TS continuity判定の範囲
+
+`userland/include/px4/ts_continuity.h`は、188-byte packetを受けるplatform-neutral C++17の
+header-only checkerとする。transport、clock、queue、起動猶予やpacket dropを所有しない。
+payloadがあるpacketはPIDごとにCCをmodulo 16で進め、adaptation-onlyは保持する。null PIDは除外する。
+同一PIDの連続するpayload packetは、PCR timestamp以外の全byteが一致する場合だけ1回のduplicateを許す。
+同一CCの3個目以降、同一CCの異なるpacket、非連続の再送はcontinuity errorとする。
+PCRのreserved bitsやOPCRなどは例外に含めず、PCR extensionは0..299を要求する。
+有効なcurrent packetのdiscontinuity indicatorは、adaptation-onlyを含めてCC baselineを更新する。
+後続のmarkerなしpacketに追加の猶予を与えない。
+
+これはCC観測器であり、完全なMPEG-TS適合性検査ではない。根拠はITU-T H.222.0 (03/2017)
+2.4.3.3–2.4.3.5とする。PMT/PCR_PID、PCRの時刻精度・new time base、および連続DI状態の
+marker数・不連続回数の適合性は検証しない。DIは各current packetで受理するという明示的な境界である。
+TEI packet、不正size/sync/AFC/adaptation length/PCRは別のresultとし、信頼済みCC baselineを変更せず、
+そのpacket自身をCC errorへ重複計上しない。次の正常packetは最後の信頼済みbaselineと比較する。
+不正packetのPIDも信頼できないため、全PIDのduplicate隣接性だけを無効にする。
+その他のadaptation field構文・PES/PSIの検証は範囲外とする。
+Q3U4/MLT/single-receiver data planeの既存TEI計数は維持し、不正header resultはCC計数から除外する。
+wire format、counter field、およびIT930x固有の起動境界・stabilizationとそのreset時点は維持する。
+
+checkerは動的allocationを行わず、8192 PIDについて各々直前の188 bytesと小さな状態を保持する。
+stream ownerは約1.6 MiB/receiverの領域をcallback前に確保し、session境界で明示的にresetする。
+component単体のoffline regressionはhardware/vendor runtimeなしでbuild・実行できなければならない。
 
 v0.18では、layoutとfield数を変えずにreceiver countとrecord値域を追加する。Q3U4 daemonが送るbyte列は従来と完全に同一である。
 

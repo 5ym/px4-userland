@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "px4/q3u4_stream.h"
+#include "px4/ts_continuity.h"
 
 #include "tagged_ts_demux.h"
 #include "mlt5pe_frontend.h"
@@ -83,7 +84,9 @@ enum class ContinuityObservation : std::uint8_t {
     fault,
 };
 
-struct Continuity final {
+// IT930x session-boundary publication policy, deliberately outside the shared
+// packet checker. A duplicate is not the consecutive transition needed here.
+struct StartupContinuity final {
     bool seen = false;
     bool established = false;
     std::uint8_t counter = 0U;
@@ -129,7 +132,8 @@ public:
         TunerStreamFinalSnapshot final_snapshot{};
         StreamTerminal terminal = StreamTerminal::none;
         StreamCounters counters{};
-        std::array<Continuity, kPidCount> continuity{};
+        TsContinuityChecker continuity_checker;
+        std::array<StartupContinuity, kPidCount> continuity{};
         bool stabilizing = true;
         bool stabilization_ready = false;
         bool stabilization_boundary_established = false;
@@ -482,7 +486,8 @@ public:
             session.final_snapshot = TunerStreamFinalSnapshot{};
             session.terminal = StreamTerminal::none;
             session.counters = StreamCounters{};
-            session.continuity.fill(Continuity{});
+            session.continuity_checker.reset();
+            session.continuity.fill(StartupContinuity{});
             session.stabilizing = stabilization_.enabled();
             session.stabilization_ready = false;
             session.stabilization_boundary_established = false;
@@ -750,6 +755,7 @@ public:
         Session& session = sessions_[receiver];
         std::lock_guard<std::mutex> lock(session.mutex);
         if (!session.attached || session.terminal != StreamTerminal::none) return;
+        session.continuity_checker.observe_untrusted_packet();
         if (session.stabilizing) {
             ++session.startup_packets;
             ++session.startup_faults.tei_packets;
@@ -771,6 +777,7 @@ public:
             if (session.stabilizing) {
                 ++session.startup_packets;
                 if ((packet.data[1U] & 0x80U) != 0U) {
+                    session.continuity_checker.observe_untrusted_packet();
                     ++session.startup_faults.tei_packets;
                     session.startup_clean_packets = 0U;
                     session.stabilization_ready = false;
@@ -821,26 +828,15 @@ public:
     static ContinuityObservation observe_continuity(Session& session,
                                                      ByteView packet) noexcept
     {
-        const std::size_t pid =
-            (static_cast<std::size_t>(packet.data[1U] & 0x1fU) << 8U) | packet.data[2U];
-        // ISO/IEC 13818-1 does not require continuity checking for the null
-        // packet PID.  Real ISDB-T multiplexes commonly emit an arbitrary or
-        // fixed CC there; treating it as a media-PID gap produces a false
-        // terminal integrity failure for an otherwise clean capture.
-        if (pid == 0x1fffU) return ContinuityObservation::clean;
-        const std::uint8_t adaptation = static_cast<std::uint8_t>((packet.data[3U] >> 4U) & 3U);
-        const std::uint8_t counter = static_cast<std::uint8_t>(packet.data[3U] & 0x0fU);
-        if (adaptation == 0U || adaptation == 2U)
+        const TsContinuityResult observation =
+            session.continuity_checker.observe(packet.data, packet.size);
+        if (observation.kind == TsContinuityKind::null_packet ||
+            observation.kind == TsContinuityKind::transport_error ||
+            observation.kind == TsContinuityKind::invalid_packet)
             return ContinuityObservation::clean;
-        const bool has_adaptation = adaptation == 3U;
-        bool discontinuity = false;
-        if (has_adaptation) {
-            const std::size_t length = packet.data[4U];
-            if (length != 0U && length + 5U <= kPacketSize)
-                discontinuity = (packet.data[5U] & 0x80U) != 0U;
-        }
-        Continuity& state = session.continuity[pid];
-        if (discontinuity) {
+        StartupContinuity& state = session.continuity[observation.pid];
+        const std::uint8_t counter = observation.counter;
+        if (observation.discontinuity) {
             // The marker resets the previous expectation, and its own CC is
             // the baseline for the following payload packet.
             state.seen = true;
@@ -849,6 +845,11 @@ public:
             session.startup_continuity_established = true;
             return ContinuityObservation::clean;
         }
+        if (state.established) {
+            return observation.kind == TsContinuityKind::error
+                ? ContinuityObservation::fault : ContinuityObservation::clean;
+        }
+        if (!observation.has_payload) return ContinuityObservation::clean;
         if (!state.seen) {
             // The IT930x PSB can expose one stale packet when a capture pin is
             // enabled, then switch to the live multiplex.  A session boundary
@@ -862,16 +863,11 @@ public:
         }
         const std::uint8_t expected =
             static_cast<std::uint8_t>((state.counter + 1U) & 0x0fU);
-        if (!state.established) {
-            state.counter = counter;
-            if (counter != expected) return ContinuityObservation::boundary;
-            state.established = true;
-            session.startup_continuity_established = true;
-            return ContinuityObservation::clean;
-        }
-        const bool fault = counter != expected;
         state.counter = counter;
-        return fault ? ContinuityObservation::fault : ContinuityObservation::clean;
+        if (counter != expected) return ContinuityObservation::boundary;
+        state.established = true;
+        session.startup_continuity_established = true;
+        return ContinuityObservation::clean;
     }
 
     void finish_startup_packet_locked(Session& session) noexcept
@@ -916,7 +912,8 @@ public:
             // this exact publication boundary so the existing one-transition
             // session-boundary validation still applies.  From the next USB
             // event onward no integrity observation is suppressed.
-            session.continuity.fill(Continuity{});
+            session.continuity_checker.reset();
+            session.continuity.fill(StartupContinuity{});
             session.changed.notify_all();
         }
     }
