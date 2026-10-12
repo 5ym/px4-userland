@@ -118,6 +118,40 @@ release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 
   TvCas stalled daemon下の終了・再起動、外部reader併用、映像・音声表示、長時間運用、全チャンネル。
   ASICEN Issue #7のCS2破損調査は別件・未解決のまま。
 
+## 2026-10-12 v0.2.1 candidate 配布binary matrix（E01–E07、E15）
+
+candidateは上記E17節と同一（commit `4dbcf335…`・run `38148226256`）。各環境へexact candidate archiveを配布し、
+archive SHA-256・外側/内側`SHA256SUMS`・manifest（version `0.2.1`・source_ref）を照合してから、§0.1/§3の
+短時間matrix（列挙→list-json型照合→8 receiver 30秒→CARD→物理card抜去/再挿入→USB物理切断/再接続→daemon再起動→
+再capture→cooperative stop・残留確認）を実施した。各物理操作は依頼直前にvibe通知し5分以内に完了。r0–r6の
+sync/TEI/continuity/queue/USB errorは全環境・全世代0。receiver 7は既知burst（rc 8、TEI 約10.9k–11.1k、CC 30–45、
+sync/queue/usb 0）をv0.2.0のdispositionと同一に維持（E04 gen1とE02 load1はr7もclean）。CCはv0.2.0の約600から
+continuity checker変更により減少しており、実破損でない。
+
+| 環境 | host / OS（kernel等） | artifact SHA-256 | 時刻(UTC) | 結果 | ログ保存先 |
+|---|---|---|---|---|---|
+| E01 glibc-x86_64 | HAOS Debian/glibc container root | `f67a7cbc…43b5f9` | 10/12 14:46–14:53 | PASS（list ready=8・LISTJSON-OK・gen1-3・card・USB・残留0） | HAOS `/tmp/opencode/px4m-logs-e01` |
+| E02 musl-x86_64 | HAOS Alpine 3.22 add-on（Supervisor） | `ada14ae5…c2b3d2a` | 10/12 14:59–15:07 | PASS（PC/SC step2 exit0・list LISTJSON-OK・load1-3・card・USB・残留0・entrypoint exit0） | `/addon_configs/local_userland_stable_alpine_test/px4-0.2.1/matrix` |
+| E03 glibc-x86_64 | latitude-wlan（Latitude 5300）/ AnduinOS 2.0.4・kernel 7.0.0-38-generic | `f67a7cbc…43b5f9` | 10/12 14:31–14:38 | PASS（gen1-3・card・USB・残留0） | latitude-wlan `~/px4m-logs` |
+| E04 darwin-arm64 | macmini / macOS 26.6.2 | `df8e30d1…6cdf8f` | 10/12 11:30–11:38 | PASS（gen1全clean・gen2/3 r7 known-burst・card・USB・残留0） | macmini `~/px4m-logs` |
+| E05 android-aarch64 | pixel / Android・Termux 2-FD | `065897e6…3bd444` | 10/12 13:17–13:44 | PASS（gen1/2・card・USB切断(usblist消失/DISCONNECTED exit7)・再接続後新daemon ready・gen・残留0） | pixel `~/px4m-logs`・`~/px4u-logs` |
+| E06 android-armv7a | google-tv / Android TV・Termux 2-FD | `565b231d…92d9e0` | 10/12 13:47–14:04 | PASS（gen1/2・card・USB切断・再接続（権限再付与後）新daemon ready・gen・残留0） | google-tv `~/px4m-logs`・`~/px4u-logs`・`~/px4f-logs` |
+| E07 android-x86_64 | bliss / Bliss OS x86_64・Termux 2-FD | `9e2273e6…10f5272` | 10/12 14:15–14:26 | PASS（gen1/2・card・USB（client STREAM_END error7 DISCONNECTED）・再接続後新daemon ready・gen・残留0） | bliss `~/px4m-logs`・`~/px4f-logs` |
+| E15 glibc-aarch64 | switch / Fedora 42 aarch64 | `9bb02448…182403` | 10/12 12:22–12:30 | PASS（gen1-3・card・USB・残留0） | switch `~/px4m-logs` |
+| E15 musl-aarch64 | switch上のAlpine arm64 container（`--network=host --cgroups=disabled`。L4T 4.9 kernelのnetavark/cgroup v2制約への対応） | `1ba23671…c9faf5` | 10/12 12:35–12:41 | PASS（gen1-3・card・USB・残留0） | switch `~/px4m-musl-logs` |
+
+- 各環境のcard抜去は`present=no`＋reader generation 2・ATR/APDUとも exit 9（NO_CARD）、再挿入はgeneration 3・
+  ATR/reset/APDU 10回 rc 0。USB切断はclient `DISCONNECTED`（exit 7）・daemon `shutdown cleanup: USB_IO`（exit 7）、
+  再接続後に新daemonがreadyとなり再captureでPASS。E01/E15/E03はdaemonをSIGTERMでcooperative stop（exit 0）し、
+  runtime dir・process残留なし。
+- E02はadd-onの`candidates/`（v0.2.0 musl）を一時的に0.2.1へ差し替え＋`Dockerfile` ENTRYPOINTを
+  `/config/px4-0.2.1/entrypoint.sh`へ切替え、options（q3u4/smoke）は変更せず rebuild→start→matrix実行→stop後、
+  元のv0.2.0 candidates（sha `52197608…`）・ENTRYPOINTへ復元しrebuildした（optionsは退避・復元の必要がないことを確認）。
+  matrixの物理操作待ちは`WAIT`/`STATE`で監視した。
+- 失敗試行（保持）: E05は初回USB再接続でharness側のUSB path解析バグにより、E06は再接続時のAndroid USB権限制約により
+  gen3未達となり、再試行で`DAEMON2_READY=yes`を得た（candidate非関与。harnessはリポジトリ外の一時スクリプト）。
+  E07はUSB一覧「空」判定が他のUSBデバイス存在で発火しないため、sysfs `0511:084a`数の消失で判定し直して完了。
+
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 
 candidate・CI run・archive SHA-256は下記E17節と同一（source commit `8c40d495850c332312cd4293489f400c8fb842d4`、
