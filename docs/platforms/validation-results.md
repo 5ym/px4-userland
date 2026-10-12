@@ -34,6 +34,90 @@ release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 
   TS復号、EDCB、recisdb-rs、TVTest、物理card抜去/再挿入、soak、full matrixは本runの対象外。
   SSH原因は未確定。
 
+## 2026-10-12 v0.2.1 candidate E17 Windows 回帰matrixとアプリ復号chain（今回再検証）
+
+- candidate: commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**・VERSION `0.2.1`・candidate run **38148226256**・
+  artifact **11706120601**。Windows ZIP SHA-256 **90743502ec4deca9db3f82a5c4a14285196050d8607ac3ca03bc9c46378647f4**、
+  px4d.exe **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  WinSCard.dll **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+- 環境: E17・HOME-PC・Windows 11 Pro x64 build 26300.9457・x64 Windows PowerShell 5.1（System32）。
+  機器: PX-Q3U4（base serial `00001205000960`、USB `0511:084a` 2 half、WinUSB）。firmware SHA
+  `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`（利用者提供、変更なし）。
+- runtime: daemon/CLIは明示的な`--runtime-dir`（`C:\px4e17\L\rdx-<run>`、owner=現在userのprotected DACL）を使用し、
+  `LOCALAPPDATA`はそのまま継承（0.2.1では明示runtimeがworker wakeを含めて支配するため、旧LOCALAPPDATA差し替え回避策は不使用）。
+  appの復号chainは`PX4_WINSCARD_RUNTIME_DIR`へ同一runtime parentを設定し、EXE横のcandidate WinSCard.dllをロード。
+  System32/SysWOW64、KnownDLL、profile ACL、service設定は変更していない。
+- 過去版との区別: 下記のリファレンス値はすべて`da3b058b1dc5f78099f2e5b9e31d7de113d746db`（PR #58）時点の記録。
+  DLLはbyte-identicalだがdaemonは`q3u4_stream`のTS continuity変更を含むため、過去版の合格を今回へ自動継承せず別途今回再検証した。
+
+### E17 Windows 回帰matrix（run `e17r2-20261012-021c`、2026-10-12 00:26:14Z〜00:32:08Z UTC）
+
+- 検証: ZIP SHA一致、内側`SHA256SUMS` 18件 bad 0、ZIP entry照合 19件 mismatch 0、manifest version `0.2.1` /
+  source_ref `4dbcf335…`。RAW_IO確認（別daemon・`LIBUSB_DEBUG=4`・r2/r6 5秒）: `enabled RAW_IO for endpoint 84`
+  が別thread 2件、`disabled` 2件、153600 bytes read 198回・他サイズ0、px4d exit 0・残留なし。
+- preflight: stray 0、Q3U4 2 half `Status OK`/service WinUSB、runtime parent DACL（owner=現在user・protected・
+  ACE1件）正常、`px4d --list`/`--list-json` は8 receiver `status=ready receivers=8`・`serial_unique=true`・
+  ISDB-S receiverのみ`lnb_15v_supported=true`・capabilityはboolean。
+- 8 receiver同時30秒（receiver 0/1/4/5=ISDB-S 1318000kHz slot0、2/3/6/7=ISDB-T 527143kHz）3世代:
+
+| 世代 | r0–r6 | r7 |
+|---|---|---|
+| gen1 | rc 0・sync/TEI/continuity/queue/USB error 0（pk 344723–480304） | rc 8・TEI 10981・CC 34・他0 |
+| gen2（card再挿入後） | 同上（pk 344624–479343） | rc 8・TEI 10986・CC 40・他0 |
+| gen3（USB再接続後・daemon2） | 同上（pk 345128–479570） | rc 8・TEI 10974・CC 34・他0 |
+
+  受信中`px4ctl status`は8/8 streaming、APDU 10回は各世代mid rc 0。v0.2.0のr7（CC約600）よりCCが減り、
+  continuity checker変更による計数の増減が実破損でないことを示す。r7は既知burstの扱いを維持。
+- card: 起動時 `card-present=yes`。`card-status`/`card-atr`/`card-reset`/`card-apdu 90:30:00:00:00 --repeat 10` は
+  各世代rc 0。物理抜去（00:28:02Z）→ `present=no initialized=no reader-generation=2`、`card-atr`/`card-apdu`とも
+  exit 9（NO_CARD）。再挿入（00:29:41Z）→ `reader-generation=3`、ATR/reset/APDU 10回復帰。各physical操作は
+  依頼前にvibe通知、5分以内に完了。
+- USB: 1 receiver client稼働中にphysical切断（00:30:57Z）→ client `DISCONNECTED` exit 7（packets 535269）、
+  daemon `shutdown cleanup: USB_IO` exit 7、runtime残留0・stray 0。再接続（00:31:27Z）→ `--list`で同一serial
+  8 receiver ready再列挙、旧daemonは終了済みのためdaemon2を同candidateから起動、card APDU 10/10 rc0。
+- 停止: cooperative stop（stdin EOF）でdaemon2 exit 0、`px4-userland`/`px4-wake`/endpoint/lock残留0、stray
+  px4d/px4-ts/px4ctl 0。判定: **PASS**（errorcount 0）。
+- 備考・失敗試行（保持）: `px4d.exe --version`はこの候補に存在しない（`argument error: unknown argument`）。
+  先行run `e17r2-20261012-021b`は物理操作の協調待ちでcard抜去窓を超過し中断（daemon exit 0・残留0でクリーン、
+  candidateの失敗ではない）。オーケストレータのSSH接続切断が`Start-Process`子を道連れにkillする問題を回避するため、
+  以後はSSHセッションを開いたままorchestratorを実行した（本節の正式runはその後者）。
+
+### アプリ復号chain（EDCB×2、recisdb-rs、TVTest×2）
+
+- 共通: candidate daemonを保護された明示`--runtime-dir`で起動し、対象appへ`PX4_WINSCARD_RUNTIME_DIR`を設定。
+  入力は利用者既存のT16地デジraw TS `T16-da3b058-raw-5s.ts`（5秒・58709 packets・SHA-256
+  `80939578e42e64de5e50b8b7a9f1d314a1b8f13ddadb40bdbce321f1c96282a5`。da3b058時点でpx4-tsが取得）。
+  参照は同入力のrecisdb-rs 1.3.0復号済み`T16-da3b058-recisdb-1.3.0-decoded.ts`（58709 packets・SHA-256
+  `8432f400db7e88dabf879959c2be1be8dff928826f241a738fbad0dcfc213b76`）と、dotのv0.2.0 EDCB/TVTest証跡TS。
+  app/daemonは全runで正常終了（exit 0・強制killなし）・runtime残留0・stray 0。BonDriver_Pipe（`\\.\pipe\BonDriver_Pipe00`）
+  へraw TSを順方向に1回だけ供給し、先頭からの再送（warm-up）は行わない。
+- **recisdb-rs 1.3.0**: `recisdb.exe decode --no-strip`で復号。出力は参照と**全58709 packets BYTE-IDENTICAL**
+  （SHA `8432f400…`）。`recisdb.ini` の`[CardReader] Name=PX4 userland (00001205000960)`を使用（`--card`不使用）。
+  ロードmodule確認: app-local `WinSCard.dll`（2eb9c13c）と`C:\WINDOWS\system32\WinSCard.dll`。
+  recisdb.exe SHA-256は `ec4e62260947d94eced2b644f81ea0ccbacef98d8932b1746532aecf90f589eb`（dotコメントの
+  `…d94d…`は転記タイプミス。同一ファイルを再検証に使用）。
+- **EDCB + Multi2Dec**（`run\EDCB`、B25Decoder.dll = tsukumijima/Multi2Dec `ccc80cd…`）: 出力TS 3850240 bytes /
+  SHA-256 `880656493886ae4dc3e10770d64b910f303b538859c6fa3702865b5150803029` = **v0.2.0 dot証跡とBYTE-IDENTICAL
+  （同一size/hash）**。出力先頭に暗号化packet 1667個が残る既知の初期化残留（v0.2.0と同じ。`MatchedReference`
+  18813/20480）。`EMM=0`・`Scramble=1`・`AllService=1`（既存ini通り）。
+- **EDCB + libaribb25**（`run\EDCB-libaribb25`、B25Decoder.dll = libaribb25 `dc1d96a…`）: 出力3917356 bytes /
+  SHA-256 `41bd536389eb3b05ca57223809c0c7f36876dca6e7a1e9c35f14734c266bfdf8` = **v0.2.0 dot証跡とBYTE-IDENTICAL**。
+  初期化残留129個。モジュールsnapshotはB25Decoder.dllを捕捉（app-local WinSCard.dllのsnapshot取得は試行依存で
+  不完全だが、出力がcandidate DLL使用のv0.2.0参照とbyte一致のためDLL経路は今回確立）。
+- **TVTest**（`run\TVTest`、logue/CasProcessor `c26423d…`＋logue/TvCas `692fbdd…`）: `/nodshow /rec /recdelay 6`で
+  遅延録画。出力4716732 bytes / SHA-256 `ae0592640f5fd6a1b82eca04a8f95540c578e828265692f3eb7627b37378a8e5`、
+  25089 packets・**scrambled 0 / TEI 0 / badSync 0**。recisdb参照（null packet除外）と位置合わせで
+  **全25089 packets BYTE一致**（オフセット13219、連続25089）。モジュール: app-local WinSCard.dll（2eb9c13c）＋
+  System32、B25.tvcas、CasProcessor.tvtp、BonDriver_Pipe.dll。`EnableContract=False`・`Instruction=2`は既存iniのまま
+  （変更せず）。
+- **TVTest（DTV-Builds系）**（`run\TVTest-DTV`、tsukumijima/TvCas `cd13585…`のB25.tvcas）: 同じ遅延録画で出力が
+  **logueと同じSHA-256 `ae059264…`・size 4716732**（25089 packets全clear・参照とBYTE一致）。
+- 補足: `/recdelay 3`の「起動直後から録画」形態は出力38308 packets中3252個の先頭残留（v0.2.0 `tv-decode-01`と同数）。
+  これは開始直後の鍵取得待ちの既知挙動であり、「録画先頭から全packet正常」とは書かない。
+- 未認定のまま（別項目）: card抜去中のappからのstale handle/明示再接続、USB切断後のapp再初期化、
+  TvCas stalled daemon下の終了・再起動、外部reader併用、映像・音声表示、長時間運用、全チャンネル。
+  ASICEN Issue #7のCS2破損調査は別件・未解決のまま。
+
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 
 candidate・CI run・archive SHA-256は下記E17節と同一（source commit `8c40d495850c332312cd4293489f400c8fb842d4`、

@@ -38,7 +38,7 @@ PX4/ASICEN共通の記録構造と空のmatrixは [`release-record.md`](release-
 | E14 | FreeBSD x86_64 | 対象外（SPEC §1・§2の対象外。記録は履歴のみ） | 対象外 |
 | E15 | Fedora aarch64 | `linux-glibc-aarch64`必須matrix環境。既存記録はhistorical baseline | §6 / validation-results.md |
 | E16 | Debian x86/i386 | source-build-only（i386配布artifactなし） | §6 / [Debian i386](platforms/debian-i686.md) |
-| E17 | Windows 11 x86_64 | 毎回必須の回帰試験対象。PX-Q3U4は0.2.0 candidate `8c40d49`のE17実機matrix、PX-M1UR/PX-S1URは同candidateのWindows profile試験（same-lease retuneは未認定）で`tuner-hardware-verified`／`card-core-hardware-verified`（非ASCII endpoint pathのready行切断は既知の制限 [#52](https://github.com/Khronos31/px4-userland/issues/52)）。他profileは`未認定`（`hardware-unverified`） | §6 / validation-results.md |
+| E17 | Windows 11 x86_64 | 毎回必須の回帰試験対象。PX-Q3U4は0.2.0 candidate `8c40d49`のE17実機matrix、PX-M1UR/PX-S1URは同candidateのWindows profile試験（same-lease retuneは未認定）で`tuner-hardware-verified`／`card-core-hardware-verified`（非ASCII endpoint pathのready行切断は既知の制限 [#52](https://github.com/Khronos31/px4-userland/issues/52)）。他profileは`未認定`（`hardware-unverified`）。0.2.1 candidate `4dbcf335…`のE17 matrixは2026-10-12再検証（下記） | §6 / validation-results.md |
 | — | Android ad-hoc APK | 対象外（dtv-android 所管。本リポジトリの gate に含めない） | 対象外 |
 
 ### 毎回必須の短時間実機matrix
