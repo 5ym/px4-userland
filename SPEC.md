@@ -1506,6 +1506,12 @@ soakを自動開始するtriggerではない。
 開始しない。ユーザーが候補比較を求めた場合は影響範囲と各選択が確認する内容を提示し、決定を待つ。releaseあたりの
 最大OS数やcanonical順での自動選定は設けない。
 
+2026-10-13のv0.2.1 frozen candidate（source commit
+`4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af`）について、ユーザーは今回のbounded Windows follow-upに加えて新たな
+soakと`px4_drv`のfresh comparisonを行わない選択をした。receiver 7の既知burstと未解決点は継続する
+（[実測記録](docs/platforms/validation-results.md)）。これはこのcandidateに対するrelease-specificな受入判断のみであり、
+本節の将来向け手順・条件を変更せず、release approvalも意味しない。
+
 ユーザーが実施を選んだ場合は、指定OS上で指定時間、対象profile/topologyに適用される10.2の受入項目を実行する。
 Q3U4を指定された場合は8 receiverのISDB-T/S混在、必要なstatus/APDU/retune/stop-reopen、TS/counter、終了cleanupを
 確認する。30分・2時間試験のFD数/RSSは傾向を記録し、固定数値閾値では判定しない。最終観測まで安定しない持続増加が

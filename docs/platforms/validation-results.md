@@ -66,8 +66,9 @@ release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 
 | gen2（card再挿入後） | 同上（pk 344624–479343） | rc 8・TEI 10986・CC 40・他0 |
 | gen3（USB再接続後・daemon2） | 同上（pk 345128–479570） | rc 8・TEI 10974・CC 34・他0 |
 
-  受信中`px4ctl status`は8/8 streaming、APDU 10回は各世代mid rc 0。v0.2.0のr7（CC約600）よりCCが減り、
-  continuity checker変更による計数の増減が実破損でないことを示す。r7は既知burstの扱いを維持。
+  受信中`px4ctl status`は8/8 streaming、APDU 10回は各世代mid rc 0。v0.2.0のr7（CC約600）に対して
+  今回のCCは30–45だったが、この短時間runの計数減少だけでは実TS破損がないことを証明しない。
+  r7は既知burstの扱いを維持する。2026-10-13追補の受入範囲と残る制限は後述。
 - card: 起動時 `card-present=yes`。`card-status`/`card-atr`/`card-reset`/`card-apdu 90:30:00:00:00 --repeat 10` は
   各世代rc 0。物理抜去（00:28:02Z）→ `present=no initialized=no reader-generation=2`、`card-atr`/`card-apdu`とも
   exit 9（NO_CARD）。再挿入（00:29:41Z）→ `reader-generation=3`、ATR/reset/APDU 10回復帰。各physical操作は
@@ -102,8 +103,9 @@ release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 
   18813/20480）。`EMM=0`・`Scramble=1`・`AllService=1`（既存ini通り）。
 - **EDCB + libaribb25**（`run\EDCB-libaribb25`、B25Decoder.dll = libaribb25 `dc1d96a…`）: 出力3917356 bytes /
   SHA-256 `41bd536389eb3b05ca57223809c0c7f36876dca6e7a1e9c35f14734c266bfdf8` = **v0.2.0 dot証跡とBYTE-IDENTICAL**。
-  初期化残留129個。モジュールsnapshotはB25Decoder.dllを捕捉（app-local WinSCard.dllのsnapshot取得は試行依存で
-  不完全だが、出力がcandidate DLL使用のv0.2.0参照とbyte一致のためDLL経路は今回確立）。
+  初期化残留129個。モジュールsnapshotはB25Decoder.dllを捕捉したが、app-local WinSCard.dllのsnapshotは
+  不完全だった。このrunのTS byte-matchだけではDLL routingを確立しない。実processのapp-local/System32
+  WinSCard module path/hashは、2026-10-13の別EDCB loader snapshot（後述）で直接確認した。
 - **TVTest**（`run\TVTest`、logue/CasProcessor `c26423d…`＋logue/TvCas `692fbdd…`）: `/nodshow /rec /recdelay 6`で
   遅延録画。出力4716732 bytes / SHA-256 `ae0592640f5fd6a1b82eca04a8f95540c578e828265692f3eb7627b37378a8e5`、
   25089 packets・**scrambled 0 / TEI 0 / badSync 0**。recisdb参照（null packet除外）と位置合わせで
@@ -114,9 +116,10 @@ release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 
   **logueと同じSHA-256 `ae059264…`・size 4716732**（25089 packets全clear・参照とBYTE一致）。
 - 補足: `/recdelay 3`の「起動直後から録画」形態は出力38308 packets中3252個の先頭残留（v0.2.0 `tv-decode-01`と同数）。
   これは開始直後の鍵取得待ちの既知挙動であり、「録画先頭から全packet正常」とは書かない。
-- 未認定のまま（別項目）: card抜去中のappからのstale handle/明示再接続、USB切断後のapp再初期化、
+- 2026-10-12時点で未認定のまま（別項目）: card抜去中のappからのstale handle/明示再接続、USB切断後のapp再初期化、
   TvCas stalled daemon下の終了・再起動、外部reader併用、映像・音声表示、長時間運用、全チャンネル。
-  ASICEN Issue #7のCS2破損調査は別件・未解決のまま。
+  2026-10-13の[bounded follow-up](#2026-10-13-v021-candidate-windows-bounded-follow-up)は一部の限定確認を追加するが、
+  これらの項目を一括認定しない。ASICEN Issue #7のCS2破損調査は別件・未解決のまま。
 
 ## 2026-10-12 v0.2.1 candidate 配布binary matrix（E01–E07、E15）
 
@@ -125,8 +128,8 @@ archive SHA-256・外側/内側`SHA256SUMS`・manifest（version `0.2.1`・sourc
 短時間matrix（列挙→list-json型照合→8 receiver 30秒→CARD→物理card抜去/再挿入→USB物理切断/再接続→daemon再起動→
 再capture→cooperative stop・残留確認）を実施した。各物理操作は依頼直前にvibe通知し5分以内に完了。r0–r6の
 sync/TEI/continuity/queue/USB errorは全環境・全世代0。receiver 7は既知burst（rc 8、TEI 約10.9k–11.1k、CC 30–45、
-sync/queue/usb 0）をv0.2.0のdispositionと同一に維持（E04 gen1とE02 load1はr7もclean）。CCはv0.2.0の約600から
-continuity checker変更により減少しており、実破損でない。
+  sync/queue/usb 0）をv0.2.0のdispositionと同一に維持（E04 gen1とE02 load1はr7もclean）。CCはv0.2.0の約600から
+  30–45へ減ったが、この短時間matrixの計数減少だけでは実TS破損がないことを証明しない。r7の既知burst扱いは維持する。
 
 | 環境 | host / OS（kernel等） | artifact SHA-256 | 時刻(UTC) | 結果 | ログ保存先 |
 |---|---|---|---|---|---|
@@ -151,6 +154,54 @@ continuity checker変更により減少しており、実破損でない。
 - 失敗試行（保持）: E05は初回USB再接続でharness側のUSB path解析バグにより、E06は再接続時のAndroid USB権限制約により
   gen3未達となり、再試行で`DAEMON2_READY=yes`を得た（candidate非関与。harnessはリポジトリ外の一時スクリプト）。
   E07はUSB一覧「空」判定が他のUSBデバイス存在で発火しないため、sysfs `0511:084a`数の消失で判定し直して完了。
+
+## 2026-10-13 v0.2.1 candidate Windows bounded follow-up
+
+- 対象: frozen candidate source commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**、version `0.2.1`。
+  `px4d.exe` SHA-256 **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  candidate `WinSCard.dll` SHA-256 **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+  Windows 11 x64、x64 Windows PowerShell 5.1、通常ユーザーsession。firmwareは利用者提供の既存ファイルで、
+  SHA-256 `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`。全owned test processは停止し、
+  各reportでcleanup errorは0。runtime directoryの削除は各reportに記録された範囲に限る。
+- bounded checks（すべて結果`success`）:
+  1. `results-20261013-064958/summary.json`と`hotplug-probe.stdout.txt`: 一回のcontrolled card hotplugで、
+     `EMPTY_OBSERVED`と`PRESENT_OBSERVED`を確認。stale Status handleへの1回目/2回目はそれぞれ
+     `0x80100069`/`0x80100003`、別のstale Transmit handleへの1回目/2回目もそれぞれ
+     `0x80100069`/`0x80100003`。fresh Connect/Statusはともに`0x00000000`で、disconnect/releaseとdaemon cleanupも成功。
+     観測したcard response bytes、ATR bytes、card identifiersは保存・掲載していない。
+  2. `usb-results-20261013-070341/usb-report.json`: USB不在列挙を確認し、旧daemonはUSB I/O終了code 7、
+     appは51 msでexit 0。再接続後のTS sampleは10,484 packets、scrambled/unmatched/trailing/bad-sync/TEI 0、
+     proven decoded 8,505 packets。最終daemon exit 0、test process残留なし。report上の空runtime directoryは残し、再帰削除していない。
+  3. `stall-DTV-results-20261013-073223/stall-report.json`: corrected controlled paused-daemon runでfeed 7,026,688 bytes、
+     watchdog resumedなし、app close 3,573 ms（5秒以内）。復帰後TSは14,244 packets/matched、proven decoded 11,536、
+     TEI/scrambled/badSync/unmatched/trailingは全て0。old/final daemonとappはexit 0。
+  4. `stall-logue-results-20261013-073311/stall-report.json`: corrected runでもwatchdog resumedなし、feed 7,026,688 bytes、
+     app close 3,576 ms（5秒以内）。復帰後TSは14,244 packets/matched、proven decoded 11,536、
+     TEI/scrambled/badSync/unmatched/trailingは全て0。old/final daemonとappはexit 0。両測定は終了・再起動動作の観測であり、
+     内部`TerminateThread` fallbackの安全性を証明しない。
+  5. `init-failure-results-20261013-075247/init-failure-report.json`: synthetic peerでshort-initとmatching RESETを
+     各1回確認。fixture feed完了、app/peerともexit 0、cleanup error/residueなし。これはmock/synthetic init failure
+     経路であり、物理card resetの実証ではない。
+  6. `init-loader-results-20261013-080258/loader-report.json`: EDCB実processのmodule snapshotで、app-local
+     `WinSCard.dll`（`init-loader-results-20261013-080258/app/WinSCard.dll`、SHA-256 `2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80`）と
+     `C:\WINDOWS\system32\WinSCard.dll`（SHA-256 `07e5f70c4106b02c468b62f525c196c304f090f173feb3eba902eca85c789679`）を
+     loaded moduleとして直接確認し、B25Decoderもapp-localから確認。app/daemon exit 0、runtime除去・残留なし。
+     これは2026-10-12のTS byte-matchからDLL routingを推定した記述を置き換える直接のmodule evidence。
+     このloader runでは新たなdecoded TS comparisonを行っていない。
+  7. `reader-coexistence-results-20261013-081853/coexistence-report.json`: System32 baselineで外部
+     `Identive SCR33xx v2.0 USB SC Reader 0`を1件検出。candidate processでは同readerとPX4 virtual readerを列挙し、
+     一つのcontextで両readerへのshared handleを同時保持。connect/status/transmit/status/disconnect/releaseの
+     return codeは成功、active protocolはT=1、両transmitはresponse length 61と期待されたboolean checksを満たした。
+     module snapshotはcandidate app-local DLLとSystem32 DLL双方のpath/hashを確認。これは同時API coexistenceであり、
+     external readerを使うapplication全体のdecode検証ではない。
+- evidence package: `Windows-remaining-tests-evidence-20261013.zip` SHA-256
+  **ac0def50172fcf3e1d68d13764e07bc1cc416b4688c8a32b5e4ed943f4134cf6**。上記の各result JSON、7チェックの概要、
+  diagnostic source（fixed public INIT commandを含む）およびsanitized stdoutを含む。TS capture・実行binary/DLL・firmware・
+  観測したcard response bytes・ATR bytes・card identifiersは含めない。
+  probe script未配置による初回wrapper終了と、通常権限でのscript copy拒否はdiagnostic preparation failureであり、
+  product failureではない。release notesおよびmachine-readable release manifest/sidecarの更新は保留中。
+- candidate限定のrisk disposition: 今回は新たなsoakと`px4_drv` fresh comparisonを行わない判断を記録する。
+  receiver 7の既知burst/未解決点は継続する。これらのbounded checksはrelease approvalではなく、full release gateを置換しない。
 
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 

@@ -500,6 +500,10 @@ SPEC §1 の対象環境（Linux、Android、macOS）に含まれないため �
   まで当該archiveのgateは未完了、support表示は`未認定`（`hardware-unverified`）である。
   exact candidate archive（`px4-userland-<version>-windows-x86_64.zip`）をnative Windows 11 x64（実機）で
   実行する。`windows-2022` CIはtest OSであり、Windows 11実機の代用にしない。
+- 2026-10-12時点の記録にある`未認定`は、その時点でfull E17 gateが未完了だった状態を示す。
+  2026-10-13のfrozen v0.2.1 candidateに対するbounded follow-up checksとその限定範囲は
+  [validation-results.md](platforms/validation-results.md)を参照する。これは追補 evidenceであり、本節の毎回必須matrixや
+  full release gate、将来版の要求項目を置き換えない。
 - 対象範囲: `px4d`/`px4-ts`/`px4ctl`とversioned local IPCのCARD_*に加え、SPEC 7.6のx64 B25限定
   application-local WinSCard DLLを確認する。配置・API・対象clientは[Windows WinSCard手順](platforms/windows-winscard.md)に従う。
   一般WinSCard全API、x86/native ARM64 DLL、Microsoft PC/SC IFD登録は対象外。native-card-adapter列は
