@@ -121,9 +121,14 @@ class GitHub:
         require(path.startswith(self.prefix + "/") or path == self.prefix,
                 "API path is outside the release repository")
         parsed = urlsplit(path)
+        compare_path = re.fullmatch(
+            re.escape(self.prefix) + r"/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}",
+            parsed.path,
+        )
         require(not parsed.scheme and not parsed.netloc and not parsed.fragment
                 and not any(ord(c) < 32 for c in path)
-                and ".." not in parsed.path and "%" not in parsed.path,
+                and (".." not in parsed.path or compare_path is not None)
+                and "%" not in parsed.path,
                 "unsafe API path")
         return "https://api.github.com" + path
 
@@ -269,7 +274,10 @@ def extract_artifact(zip_path, destination, expected):
 
 class Publisher:
     def __init__(self, api, product, tag, tag_sha, directory, *, timeout=10800,
-                 poll_interval=30, sleep=time.sleep, monotonic=time.monotonic):
+                 poll_interval=30, sleep=time.sleep, monotonic=time.monotonic,
+                 expected_tag_object=None, expected_tag_run_id=None,
+                 expected_tag_run_attempt=None, expected_tag_artifact_id=None,
+                 expected_tag_provenance_artifact_id=None):
         require(product in REPOSITORIES and api.repository == REPOSITORIES[product],
                 "product/repository mismatch")
         require(bool(TAG_RE.fullmatch(tag)) and bool(SHA_RE.fullmatch(tag_sha)),
@@ -292,6 +300,22 @@ class Publisher:
         self.phase = "verify-inputs"
         self.publication_attempted = False
         self.release_id = None
+        self.expected_tag_object = expected_tag_object
+        self.expected_tag_run_id = expected_tag_run_id
+        self.expected_tag_run_attempt = expected_tag_run_attempt
+        self.expected_tag_artifact_id = expected_tag_artifact_id
+        self.expected_tag_provenance_artifact_id = expected_tag_provenance_artifact_id
+        if expected_tag_object is not None:
+            require(bool(SHA_RE.fullmatch(expected_tag_object)), "invalid expected tag object SHA")
+        for value, label in ((expected_tag_run_id, "expected tag run id"),
+                             (expected_tag_artifact_id, "expected tag artifact id"),
+                             (expected_tag_provenance_artifact_id,
+                              "expected tag provenance artifact id")):
+            if value is not None:
+                positive_id(value, label)
+        if expected_tag_run_attempt is not None:
+            require(type(expected_tag_run_attempt) is int and expected_tag_run_attempt > 0,
+                    "invalid expected tag run attempt")
 
     def check_tag(self):
         ref = self.api.json("GET", f"{self.prefix}/git/ref/tags/{self.tag}")
@@ -304,6 +328,9 @@ class Publisher:
                 and tag.get("object", {}).get("type") == "commit"
                 and tag["object"].get("sha") == self.sha,
                 "tag does not resolve to the event commit")
+        if self.expected_tag_object is not None:
+            require(obj["sha"] == self.expected_tag_object,
+                    "tag object differs from the independently selected immutable tag")
         if self.tag_object is None:
             self.tag_object = obj["sha"]
         require(self.tag_object == obj["sha"], "tag changed during release")
@@ -406,9 +433,15 @@ class Publisher:
             matches = [run for run in runs if run.get("head_branch") == self.tag]
             require(len(matches) <= 1, "multiple build runs claim this tag; refusing ambiguous provenance")
             if matches:
-                run = self.check_run(matches[0], self.sha, tag=True, complete=False)
+                run = self.check_run(
+                    matches[0], self.sha, run_id=self.expected_tag_run_id,
+                    attempt=self.expected_tag_run_attempt, tag=True, complete=False,
+                )
                 if run.get("status") == "completed":
-                    return self.check_run(run, self.sha, tag=True)
+                    return self.check_run(
+                        run, self.sha, run_id=self.expected_tag_run_id,
+                        attempt=self.expected_tag_run_attempt, tag=True,
+                    )
                 require(run.get("status") in {"queued", "in_progress", "waiting", "pending", "requested"},
                         "tag build is in an unsupported state")
             remaining = deadline - self.monotonic()
@@ -454,7 +487,8 @@ class Publisher:
 
     def tag_provenance(self):
         folder, _ = self.artifact(self.tag_run, "tag-provenance", name="release-provenance",
-                                 expected=("release-provenance.json",))
+                                 expected=("release-provenance.json",),
+                                 expected_id=self.expected_tag_provenance_artifact_id)
         provenance = parse_json((folder / "release-provenance.json").read_bytes())
         expected = {"schema": 1, "repository": self.api.repository, "event": "push",
                     "ref": f"refs/tags/{self.tag}", "sha": self.sha,
@@ -512,7 +546,9 @@ class Publisher:
         candidate_dir, candidate_id = self.artifact(candidate, "candidate", self.record["candidate"]["artifact_id"])
         reproduction_dir, reproduction_id = self.artifact(reproduction, "reproduction",
                                                         self.record["reproduction"]["artifact_id"])
-        self.tag_dir, self.tag_artifact_id = self.artifact(self.tag_run, "tag")
+        self.tag_dir, self.tag_artifact_id = self.artifact(
+            self.tag_run, "tag", self.expected_tag_artifact_id,
+        )
         self.phase = "verify-release-payloads"
         report = release_verify.verify_release(record_path, candidate_dir, reproduction_dir, self.tag_dir,
                                                product=self.product, tag=self.tag, tag_sha=self.sha,
@@ -579,8 +615,14 @@ class Publisher:
     def pre_mutation(self):
         self.check_tag()
         current = self.api.json("GET", f"{self.prefix}/actions/runs/{self.tag_run['id']}")
-        self.check_run(current, self.sha, run_id=self.tag_run["id"],
-                       attempt=self.tag_run["run_attempt"], tag=True)
+        self.check_run(
+            current, self.sha,
+              run_id=(self.expected_tag_run_id if self.expected_tag_run_id is not None
+                      else self.tag_run["id"]),
+              attempt=(self.expected_tag_run_attempt if self.expected_tag_run_attempt is not None
+                       else self.tag_run["run_attempt"]),
+            tag=True,
+        )
         latest = self.api.json("GET", f"{self.prefix}/releases/latest", missing_ok=True)
         if latest is not None and latest.get("tag_name") != self.tag:
             latest_tag = latest.get("tag_name", "")

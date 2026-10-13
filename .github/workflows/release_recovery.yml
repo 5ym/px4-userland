@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Recover approved Stable publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable product tag to recover
+        required: true
+        type: string
+      expected_tag_object:
+        description: Expected annotated tag object SHA
+        required: true
+        type: string
+      failed_publish_run_id:
+        description: Original failed release_tag push run ID
+        required: true
+        type: number
+      failed_publish_run_attempt:
+        description: Original failed release_tag run attempt
+        required: true
+        type: number
+      tag_build_run_id:
+        description: Successful original tag-push build run ID
+        required: true
+        type: number
+      tag_build_run_attempt:
+        description: Successful original tag-push build attempt
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: stable-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'Khronos31/px4-userland' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the exact recovery tooling revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the exact recovery workflow and product provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECOVERY_TAG: ${{ inputs.tag }}
+          EXPECTED_TAG_OBJECT: ${{ inputs.expected_tag_object }}
+          FAILED_PUBLISH_RUN_ID: ${{ inputs.failed_publish_run_id }}
+          FAILED_PUBLISH_RUN_ATTEMPT: ${{ inputs.failed_publish_run_attempt }}
+          TAG_BUILD_RUN_ID: ${{ inputs.tag_build_run_id }}
+          TAG_BUILD_RUN_ATTEMPT: ${{ inputs.tag_build_run_attempt }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          python3 scripts/release_recover.py verify \
+            --report "$RUNNER_TEMP/release-recovery-verification.json"
+      - name: Preserve read-only recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-recovery-verification-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-recovery-verification.json
+          if-no-files-found: warn
+
+  publish:
+    needs: verify
+    if: >-
+      needs.verify.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'Khronos31/px4-userland' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact recovery tooling revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Revalidate provenance and perform guarded publication
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECOVERY_TAG: ${{ inputs.tag }}
+          EXPECTED_TAG_OBJECT: ${{ inputs.expected_tag_object }}
+          FAILED_PUBLISH_RUN_ID: ${{ inputs.failed_publish_run_id }}
+          FAILED_PUBLISH_RUN_ATTEMPT: ${{ inputs.failed_publish_run_attempt }}
+          TAG_BUILD_RUN_ID: ${{ inputs.tag_build_run_id }}
+          TAG_BUILD_RUN_ATTEMPT: ${{ inputs.tag_build_run_attempt }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          python3 scripts/release_recover.py publish \
+            --report "$RUNNER_TEMP/release-recovery-publication.json"
+      - name: Preserve publication evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-recovery-publication-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-recovery-publication.json
+          if-no-files-found: warn
