@@ -95,3 +95,34 @@ git push origin vX.Y.Z
 公開 workflow の成功だけでなく、その出力から tag SHA、candidate/reproduction/tag run ID、inventory/hash、Draft/公開後照合、Release URL と Latest 状態を確認します。公開後照合が失敗した場合は「公開されたが検証未完了」と区別し、成功と報告しません。公開済みタグやアセットを修正のために置き換えません。
 
 公開日時、照合結果、ログの所在を [実測記録](../docs/platforms/validation-results.md) に追記し、commit/push は利用者の依頼に従います。この後続記録のためにタグを移動せず、公開物は固定します。
+## 7. v0.2.1 の限定 recovery entry point
+
+v0.2.1 は注釈付きタグと product commit を変更せず、タグ push 後に検証 job で停止した既知の失敗だけを復旧します。対象は次の固定 identity です。
+
+- tag: `v0.2.1`
+- annotated tag object: `4939fdec32900a807252586e807e97f19e6b6612`
+- product commit: `dd1c1bea16a5871085d5f2a42c009364c1ec7345`
+- failed publisher push run/attempt: `38330456338` / `1`
+- successful tag-build push run/attempt: `38330455992` / `1`
+- failed verification report artifact: `11782910579`
+- tag-build `release-candidate` / `release-provenance` artifacts: `11782756340` / `11782641618`
+
+独立レビュー後に利用する entry point は `.github/workflows/release_recovery.yml` の
+`workflow_dispatch` のみで、ref は `main` に固定します。入力は上記の tag、annotated
+tag object、2 つの元 run ID/attempt だけです。workflow と helper は指定値が固定 identity と
+一致すること、実際の dispatch event、run attempt、workflow path、非 fork repository ID、
+元 verifier の `publication_attempted=false` / `release_id=null` / `verify-inputs` report、
+verification failure と publication skip、成功した 20-job tag build とその artifacts を
+GitHub API と artifact digest で照合します。artifact は JSON evidence としてのみ読み、
+実行しません。
+
+workflow checkout の `GITHUB_SHA` / `GITHUB_WORKFLOW_SHA` は recovery tooling の revision
+です。product SHA は tag object から別に解決して上記 commit と照合します。read-only verify
+job と contents-write publish job は両方とも provenance と全 release gate を再検証し、
+通常の tag-push verifier と同じ concurrency group を使います。既存の `release_tag.yml`
+tag-push flow は変更しません。
+
+この手順ではタグを再作成・移動・削除せず、Release を手動で作成・upload しません。通常の
+公開 workflow が Draft、公開、Latest、公開後の再取得検証を担当します。どの identity、
+attempt、artifact、payload 検証でも一致しなければ停止し、workflow dispatch せずに原因を
+独立レビューへ戻します。

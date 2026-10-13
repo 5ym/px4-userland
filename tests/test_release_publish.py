@@ -496,6 +496,23 @@ class HTTPTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(pub.ReleaseError):
                 api.api_url(path)
 
+    def test_real_github_api_url_allows_only_canonical_compare_paths(self):
+        api = pub.GitHub(REPOSITORY, "secret")
+        left, right = "a" * 40, "b" * 40
+        compare = f"{PREFIX}/compare/{left}...{right}"
+        self.assertEqual(api.api_url(compare), "https://api.github.com" + compare)
+        for path in (
+            f"{PREFIX}/compare/{left}....{right}",
+            f"{PREFIX}/compare/{left.upper()}...{right}",
+            f"{PREFIX}/compare/{left}...{right}/../releases",
+            f"{PREFIX}/compare/{left}...%2e%2e/{right}",
+            f"/repos/other/repo/compare/{left}...{right}",
+            f"https://api.github.com{compare}",
+            f"{PREFIX}/contents/..%2freleases",
+        ):
+            with self.subTest(path=path), self.assertRaises(pub.ReleaseError):
+                api.api_url(path)
+
     def test_unsafe_redirects_rejected(self):
         for url in ("http://release-assets.githubusercontent.com/file", "https://evil.test/file",
                     "https://release-assets.githubusercontent.com.evil.test/file", "https://127.0.0.1/file",
