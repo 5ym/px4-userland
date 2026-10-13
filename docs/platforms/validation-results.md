@@ -1492,3 +1492,46 @@ Bliss OSではバックグラウンド時にTermux UID全体が凍結し、`term
   Candidate-versus-tag archive comparison, exact tag-run provenance, Draft download comparison,
   publication and post-publication/Latest verification belong to the later tag workflow and
   have not yet occurred. This pre-tag review does not report those later checks as completed.
+
+## 2026-10-13 v0.2.1 publication and recovery result
+
+- 公開完了日時: 2026-10-13 01:54:42 UTC（10:54:42 JST）。
+  [Release v0.2.1](https://github.com/Khronos31/px4-userland/releases/tag/v0.2.1)
+  （Release ID `411165969`）は Stable / Latest、draft=false、prerelease=false。
+- immutable annotated tag object: `4939fdec32900a807252586e807e97f19e6b6612`。
+  product commit: `dd1c1bea16a5871085d5f2a42c009364c1ec7345`、
+  tree: `0f98b62659b70617d67651fc1133f02650fe3332`。
+  復旧前後でタグ・製品コミット・tag build の配布物を移動・置換していない。
+- original candidate run `38148226256` / artifact `11706120601`、
+  independent reproduction run `38148340438` / artifact `11705965892`。
+  公開元の tag-push build は run `38330455992` / attempt `1`、
+  release-candidate artifact `11782756340`、provenance artifact `11782641618`。
+  tag build は全20 jobs成功。provenance の event=push、
+  ref=refs/tags/v0.2.1、repository・product SHA・run/attempt が一致した。
+- 初回自動公開 run `38330456338` は正当な compare URL の `...` を拒否する
+  `unsafe API path` で停止し、publication_attempted=false、Release未作成。
+  利用者がタグ固定の復旧手順を承認し、PR #61で限定recoveryを追加。
+  最初のrecovery run `38333391847` はActions artifact取得のAccept不一致による
+  HTTP415でread-only検証中に停止、publish jobはskipped。PR #62でmedia typeを修正した。
+  失敗runを成功へ読み替えず、通常のtag-push結果と復旧結果を分けて保持する。
+- 成功した [recovery run `38334240643`](https://github.com/Khronos31/px4-userland/actions/runs/38334240643)
+  / attempt `1` の tooling/workflow SHA は
+  `42981648cc9f299dd4ad5c3e10dd94db0c44e03d`。
+  実際のworkflow_dispatchを検証し、product SHAとtooling SHAを分離した。
+  read-only verifyとwrite publishの両jobで元run・artifact・全公開gateを再確認した。
+- 候補対tagの比較は、9 binaryの非文書payloadのbyte一致、sourceの許可された6文書差分、
+  inventory/type/mode・manifest/checksumの整合を確認。全11 assetsのDraft再取得と
+  公開後再取得、10 archive checksum、承認済み本文、Latestを確認した。
+  notes SHA-256:
+  `d7c9086cede878c60f9eac3da4f27d823c22980ab108e328233a304614bcb999`。
+  公開版の外側SHA256SUMS SHA-256:
+  `c0ad4592a9b049007b688ade9e793c8b01c1d4b77f73861db16fc214f61ab7a1`。
+- [publication report artifact `11784022968`](https://github.com/Khronos31/px4-userland/actions/runs/38334240643/artifacts/11784022968):
+  status=success、phase=verify-published-downloads、
+  publication.state=published-and-redownload-verified。
+  report JSON SHA-256:
+  `69fc56e4fc3d3433abc669b0bac6bb13b79ea7a698f58195d034b5c2d3028356`。
+  全11ファイルのhash mapと元run/provenanceを保持する。
+- 復旧ツールの最終PR CIは両run全20 jobs、release-helper103件成功。
+  tooling main run `38334197042` も全20 jobs成功。
+  この公開後記録はタグ後の文書追記であり、公開済みタグ・source archiveを更新しない。
