@@ -8,9 +8,12 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+# Load the real archive fixture before the publisher, as in the full pipeline tests.
+import test_release_integration as pipeline
 import release_publish as publish
 import release_recover as recovery
 
@@ -341,5 +344,126 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/release_reusable.yml", ordinary)
 
 
+class ExecuteTests(unittest.TestCase):
+    """Exercise execute wiring with the real Publisher and archive verifier.
+
+    Recovery.validate has separate REST identity tests above. Only that boundary
+    is controlled here, including its second-call failure before any write.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.fixture = pipeline.archive_fixture.ReleaseFixture(
+            self.root / "fixtures", recovery.PRODUCT, recovery.REPOSITORY)
+        self.api = pipeline.boundary.FakeAPI()
+        pipeline.populate_api(self.api, self.fixture)
+        self.assertIs(publish.release_verify, pipeline.archive_fixture.verify)
+        self.pins = {
+            "TAG": pipeline.archive_fixture.TAG,
+            "PRODUCT_SHA": pipeline.archive_fixture.TAG_SHA,
+            "TAG_OBJECT": self.api.tag_object,
+            "TAG_BUILD_RUN_ID": 102,
+            "TAG_BUILD_ATTEMPT": 1,
+            "TAG_BUILD_ARTIFACT_ID": 1002,
+            "TAG_PROVENANCE_ARTIFACT_ID": 1003,
+        }
+        for name, value in self.pins.items():
+            setting = patch.object(recovery, name, value)
+            setting.start()
+            self.addCleanup(setting.stop)
+        self.context = {"tooling_sha": TOOL_SHA, "workflow_sha": TOOL_SHA,
+                        "product_sha": recovery.PRODUCT_SHA,
+                        "tag_object": recovery.TAG_OBJECT,
+                        "recovery_run_id": RECOVERY_RUN_ID, "recovery_run_attempt": 1}
+        validation = patch.object(recovery.Recovery, "validate", return_value=self.context)
+        self.validate = validation.start()
+        self.addCleanup(validation.stop)
+        self.report_path = self.root / "report.json"
+
+    def execute(self, mode):
+        real_publisher = publish.Publisher
+        with patch.object(publish, "GitHub", return_value=self.api), \
+                patch.object(publish, "Publisher", wraps=real_publisher) as constructor:
+            result = recovery.execute(mode, {"GITHUB_TOKEN": "offline-token"}, {}, self.report_path)
+        args, kwargs = constructor.call_args
+        self.assertIs(args[0], self.api)
+        self.assertEqual(args[1:4], (recovery.PRODUCT, recovery.TAG, recovery.PRODUCT_SHA))
+        self.assertEqual(kwargs, {
+            "expected_tag_object": recovery.TAG_OBJECT,
+            "expected_tag_run_id": recovery.TAG_BUILD_RUN_ID,
+            "expected_tag_run_attempt": recovery.TAG_BUILD_ATTEMPT,
+            "expected_tag_artifact_id": recovery.TAG_BUILD_ARTIFACT_ID,
+            "expected_tag_provenance_artifact_id": recovery.TAG_PROVENANCE_ARTIFACT_ID,
+        })
+        return result, json.loads(self.report_path.read_text(encoding="utf-8"))
+
+    def test_verify_executes_full_payload_gates_read_only_and_reports_pins(self):
+        result, report = self.execute("verify")
+        self.assertEqual(result, 0)
+        self.validate.assert_called_once()
+        self.assertEqual(self.api.mutations, [])
+        self.assertEqual(len(self.api.downloads), 4)
+        self.assertTrue(report["verification"]["verified"])
+        self.assertEqual(report["status"], "success")
+        self.assertEqual(report["phase"], "verified")
+        self.assertFalse(report["publication_attempted"])
+        self.assertIsNone(report["release_id"])
+        self.assertEqual(report["tag_sha"], recovery.PRODUCT_SHA)
+        self.assertEqual(report["tag_object"], recovery.TAG_OBJECT)
+        self.assertEqual(report["recovery"], self.context)
+        self.assertNotEqual(report["recovery"]["tooling_sha"], report["tag_sha"])
+        self.assertEqual(report["tag_run_id"], 102)
+        self.assertEqual(report["tag_run_attempt"], 1)
+        self.assertEqual(report["tag_artifact_id"], 1002)
+        self.assertEqual(len(report["assets_sha256"]), 11)
+
+    def test_publish_executes_full_pipeline_and_published_retry_is_read_only(self):
+        result, report = self.execute("publish")
+        self.assertEqual(result, 0)
+        self.assertEqual(self.validate.call_count, 2)
+        self.assertTrue(report["verification"]["verified"])
+        self.assertEqual(report["recovery"], self.context)
+        self.assertEqual(report["publication"]["state"], "published-and-redownload-verified")
+        self.assertTrue(report["publication_attempted"])
+        self.assertEqual([call[0] for call in self.api.mutations],
+                         ["POST"] + ["UPLOAD"] * 11 + ["PATCH"])
+        self.assertEqual(self.api.latest["target_commitish"], recovery.PRODUCT_SHA)
+        self.assertEqual(self.api.latest["body"].encode(), self.fixture.notes)
+        self.assertEqual(len([p for p in self.api.downloads if "/releases/assets/" in p]), 22)
+        self.api.mutations.clear()
+        result, report = self.execute("publish")
+        self.assertEqual(result, 0)
+        self.assertEqual(self.validate.call_count, 4)
+        self.assertEqual(report["publication"]["state"], "already-published-verified")
+        self.assertEqual(self.api.mutations, [])
+
+    def test_second_provenance_validation_failure_blocks_all_writes(self):
+        self.validate.side_effect = [self.context, publish.ReleaseError("original run changed")]
+        result, report = self.execute("publish")
+        self.assertEqual(result, 1)
+        self.assertEqual(self.validate.call_count, 2)
+        self.assertTrue(report["verification"]["verified"])
+        self.assertEqual(len(self.api.downloads), 4)
+        self.assertEqual(self.api.mutations, [])
+        self.assertEqual(self.api.releases, [])
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["error"], "original run changed")
+        self.assertFalse(report["publication_attempted"])
+        self.assertIsNone(report["release_id"])
+
+    def test_real_http_client_sends_canonical_compare_request(self):
+        opener = MagicMock()
+        opener.open.return_value = BytesIO(b'{"status":"ahead"}')
+        api = publish.GitHub(recovery.REPOSITORY, "offline-token", opener=opener)
+        path = f"{api.prefix}/compare/{'a' * 40}...{'b' * 40}"
+        self.assertEqual(api.json("GET", path), {"status": "ahead"})
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.github.com" + path)
+        self.assertEqual(request.get_method(), "GET")
+
+
 if __name__ == "__main__":
     unittest.main()
+
