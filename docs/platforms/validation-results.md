@@ -8,6 +8,201 @@ Stable release の実測記録は本ファイルへ日付付きで追記する�
 
 release record には候補 version/commit/tree/CI run/attempt/artifact ID、10 archive（9 binary + source。binaryは8 tar archiveとWindows ZIP）と checksum/audit結果、baseline tag と各 artifact の byte-identity 判定、変更の hunk-level 影響（call-path/guard）、claim ごとの `継承` / `今回再検証` / `未認定` / `対象外`、soakの有無・時間・対象OSについてのユーザー決定、各 test の環境ID・OS/architecture・host・device/USB ID・runtime/access path・archive SHA-256・UTC時刻・コマンド・counter・結果・ログ保存先、未実施または非該当の物理操作と理由を記録する。失敗試行と過去版に限定した受入判断を保持し、機械可読の完了表明を実測の代わりにしない。canonical 環境ID と手順は [`release-validation.md`](../release-validation.md) を正本とする。Android ad-hoc APK は dtv-android 所管であり本記録に含めない。
 
+## 2026-10-12 v0.2.1 candidate E17 Windows WinSCard smoke（限定実機確認）
+
+- 対象と範囲: candidate commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**、candidate run **38148226256**。
+  成功runは2026-10-12 07:48:01–07:48:06 JST。利用者のWindows 11 x64通常ユーザーsession 1、
+  x64 Windows PowerShell 5.1でPX-Q3U4を使った。
+  Windows ZIP SHA-256 **90743502ec4deca9db3f82a5c4a14285196050d8607ac3ca03bc9c46378647f4**、
+  px4d.exe SHA-256 **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  WinSCard.dll SHA-256 **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+  candidate artifactは事前にhash確認済み。変更対象はProbeだけで、candidate ZIP/binaryは変更していない
+  （事後再hashを実施したという意味ではない）。返却された診断結果ZIPのSHA-256は
+  **33f3dc401c09d0416d8bf4b8322af4de0b0c84dcc6e7aa34d95e6fb43c026b14**。
+- 初回診断: daemonはready、px4ctlはexit 0でcard-presentを報告し、daemonもexit 0で終了したが、
+  WinSCardのSCardListReadersWは**0x80100022**で失敗した。初回ProbeはP/Invokeのstring groupsへPowerShellの
+  $nullを渡していた。純managed C#確認でPowerShellからstring引数へ渡る$nullはnull参照ではなく空文字
+  （IsNull($null)=false、Length($null)=0）になることを確認した。candidateはNULL以外のgroupsを
+  UNSUPPORTED_FEATUREとして拒否するため、この呼出しはNULL group queryになっていなかった。
+- Probe修正後: groupsをIntPtrにし、size queryとbuffer呼出しの両方にIntPtr.Zeroを渡した。
+  candidate自体は変更していない。Establish、ListReadersW size queryとbuffer（各return code 0、bufferは31
+  UTF-16 code units、対象reader 1件）、Connect（SHARED/T=1）、Status（state 6、protocol 2、ATR length 13）、
+  Disconnect（LEAVE）、Releaseの各return codeはすべて0。ATR bytesやcard identityは保存・掲載していない。
+  Probe exit 0、daemon exit 0、cleanup error・process/runtime残留なし。
+- 判定: このcandidate、Windows実機session、Q3U4におけるapplication-local WinSCard列挙・接続・状態取得・
+  正常解放の限定smokeを今回再検証とする。B25 application互換や一般WinSCard互換の合格を意味しない。
+  TS復号、EDCB、recisdb-rs、TVTest、物理card抜去/再挿入、soak、full matrixは本runの対象外。
+  SSH原因は未確定。
+
+## 2026-10-12 v0.2.1 candidate E17 Windows 回帰matrixとアプリ復号chain（今回再検証）
+
+- candidate: commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**・VERSION `0.2.1`・candidate run **38148226256**・
+  artifact **11706120601**。Windows ZIP SHA-256 **90743502ec4deca9db3f82a5c4a14285196050d8607ac3ca03bc9c46378647f4**、
+  px4d.exe **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  WinSCard.dll **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+- 環境: E17・HOME-PC・Windows 11 Pro x64 build 26300.9457・x64 Windows PowerShell 5.1（System32）。
+  機器: PX-Q3U4（base serial `00001205000960`、USB `0511:084a` 2 half、WinUSB）。firmware SHA
+  `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`（利用者提供、変更なし）。
+- runtime: daemon/CLIは明示的な`--runtime-dir`（`C:\px4e17\L\rdx-<run>`、owner=現在userのprotected DACL）を使用し、
+  `LOCALAPPDATA`はそのまま継承（0.2.1では明示runtimeがworker wakeを含めて支配するため、旧LOCALAPPDATA差し替え回避策は不使用）。
+  appの復号chainは`PX4_WINSCARD_RUNTIME_DIR`へ同一runtime parentを設定し、EXE横のcandidate WinSCard.dllをロード。
+  System32/SysWOW64、KnownDLL、profile ACL、service設定は変更していない。
+- 過去版との区別: 下記のリファレンス値はすべて`da3b058b1dc5f78099f2e5b9e31d7de113d746db`（PR #58）時点の記録。
+  DLLはbyte-identicalだがdaemonは`q3u4_stream`のTS continuity変更を含むため、過去版の合格を今回へ自動継承せず別途今回再検証した。
+
+### E17 Windows 回帰matrix（run `e17r2-20261012-021c`、2026-10-12 00:26:14Z〜00:32:08Z UTC）
+
+- 検証: ZIP SHA一致、内側`SHA256SUMS` 18件 bad 0、ZIP entry照合 19件 mismatch 0、manifest version `0.2.1` /
+  source_ref `4dbcf335…`。RAW_IO確認（別daemon・`LIBUSB_DEBUG=4`・r2/r6 5秒）: `enabled RAW_IO for endpoint 84`
+  が別thread 2件、`disabled` 2件、153600 bytes read 198回・他サイズ0、px4d exit 0・残留なし。
+- preflight: stray 0、Q3U4 2 half `Status OK`/service WinUSB、runtime parent DACL（owner=現在user・protected・
+  ACE1件）正常、`px4d --list`/`--list-json` は8 receiver `status=ready receivers=8`・`serial_unique=true`・
+  ISDB-S receiverのみ`lnb_15v_supported=true`・capabilityはboolean。
+- 8 receiver同時30秒（receiver 0/1/4/5=ISDB-S 1318000kHz slot0、2/3/6/7=ISDB-T 527143kHz）3世代:
+
+| 世代 | r0–r6 | r7 |
+|---|---|---|
+| gen1 | rc 0・sync/TEI/continuity/queue/USB error 0（pk 344723–480304） | rc 8・TEI 10981・CC 34・他0 |
+| gen2（card再挿入後） | 同上（pk 344624–479343） | rc 8・TEI 10986・CC 40・他0 |
+| gen3（USB再接続後・daemon2） | 同上（pk 345128–479570） | rc 8・TEI 10974・CC 34・他0 |
+
+  受信中`px4ctl status`は8/8 streaming、APDU 10回は各世代mid rc 0。v0.2.0のr7（CC約600）に対して
+  今回のCCは30–45だったが、この短時間runの計数減少だけでは実TS破損がないことを証明しない。
+  r7は既知burstの扱いを維持する。2026-10-13追補の受入範囲と残る制限は後述。
+- card: 起動時 `card-present=yes`。`card-status`/`card-atr`/`card-reset`/`card-apdu 90:30:00:00:00 --repeat 10` は
+  各世代rc 0。物理抜去（00:28:02Z）→ `present=no initialized=no reader-generation=2`、`card-atr`/`card-apdu`とも
+  exit 9（NO_CARD）。再挿入（00:29:41Z）→ `reader-generation=3`、ATR/reset/APDU 10回復帰。各physical操作は
+  依頼前にvibe通知、5分以内に完了。
+- USB: 1 receiver client稼働中にphysical切断（00:30:57Z）→ client `DISCONNECTED` exit 7（packets 535269）、
+  daemon `shutdown cleanup: USB_IO` exit 7、runtime残留0・stray 0。再接続（00:31:27Z）→ `--list`で同一serial
+  8 receiver ready再列挙、旧daemonは終了済みのためdaemon2を同candidateから起動、card APDU 10/10 rc0。
+- 停止: cooperative stop（stdin EOF）でdaemon2 exit 0、`px4-userland`/`px4-wake`/endpoint/lock残留0、stray
+  px4d/px4-ts/px4ctl 0。判定: **PASS**（errorcount 0）。
+- 備考・失敗試行（保持）: `px4d.exe --version`はこの候補に存在しない（`argument error: unknown argument`）。
+  先行run `e17r2-20261012-021b`は物理操作の協調待ちでcard抜去窓を超過し中断（daemon exit 0・残留0でクリーン、
+  candidateの失敗ではない）。オーケストレータのSSH接続切断が`Start-Process`子を道連れにkillする問題を回避するため、
+  以後はSSHセッションを開いたままorchestratorを実行した（本節の正式runはその後者）。
+
+### アプリ復号chain（EDCB×2、recisdb-rs、TVTest×2）
+
+- 共通: candidate daemonを保護された明示`--runtime-dir`で起動し、対象appへ`PX4_WINSCARD_RUNTIME_DIR`を設定。
+  入力は利用者既存のT16地デジraw TS `T16-da3b058-raw-5s.ts`（5秒・58709 packets・SHA-256
+  `80939578e42e64de5e50b8b7a9f1d314a1b8f13ddadb40bdbce321f1c96282a5`。da3b058時点でpx4-tsが取得）。
+  参照は同入力のrecisdb-rs 1.3.0復号済み`T16-da3b058-recisdb-1.3.0-decoded.ts`（58709 packets・SHA-256
+  `8432f400db7e88dabf879959c2be1be8dff928826f241a738fbad0dcfc213b76`）と、dotのv0.2.0 EDCB/TVTest証跡TS。
+  app/daemonは全runで正常終了（exit 0・強制killなし）・runtime残留0・stray 0。BonDriver_Pipe（`\\.\pipe\BonDriver_Pipe00`）
+  へraw TSを順方向に1回だけ供給し、先頭からの再送（warm-up）は行わない。
+- **recisdb-rs 1.3.0**: `recisdb.exe decode --no-strip`で復号。出力は参照と**全58709 packets BYTE-IDENTICAL**
+  （SHA `8432f400…`）。`recisdb.ini` の`[CardReader] Name=PX4 userland (00001205000960)`を使用（`--card`不使用）。
+  ロードmodule確認: app-local `WinSCard.dll`（2eb9c13c）と`C:\WINDOWS\system32\WinSCard.dll`。
+  recisdb.exe SHA-256は `ec4e62260947d94eced2b644f81ea0ccbacef98d8932b1746532aecf90f589eb`（dotコメントの
+  `…d94d…`は転記タイプミス。同一ファイルを再検証に使用）。
+- **EDCB + Multi2Dec**（`run\EDCB`、B25Decoder.dll = tsukumijima/Multi2Dec `ccc80cd…`）: 出力TS 3850240 bytes /
+  SHA-256 `880656493886ae4dc3e10770d64b910f303b538859c6fa3702865b5150803029` = **v0.2.0 dot証跡とBYTE-IDENTICAL
+  （同一size/hash）**。出力先頭に暗号化packet 1667個が残る既知の初期化残留（v0.2.0と同じ。`MatchedReference`
+  18813/20480）。`EMM=0`・`Scramble=1`・`AllService=1`（既存ini通り）。
+- **EDCB + libaribb25**（`run\EDCB-libaribb25`、B25Decoder.dll = libaribb25 `dc1d96a…`）: 出力3917356 bytes /
+  SHA-256 `41bd536389eb3b05ca57223809c0c7f36876dca6e7a1e9c35f14734c266bfdf8` = **v0.2.0 dot証跡とBYTE-IDENTICAL**。
+  初期化残留129個。モジュールsnapshotはB25Decoder.dllを捕捉したが、app-local WinSCard.dllのsnapshotは
+  不完全だった。このrunのTS byte-matchだけではDLL routingを確立しない。実processのapp-local/System32
+  WinSCard module path/hashは、2026-10-13の別EDCB loader snapshot（後述）で直接確認した。
+- **TVTest**（`run\TVTest`、logue/CasProcessor `c26423d…`＋logue/TvCas `692fbdd…`）: `/nodshow /rec /recdelay 6`で
+  遅延録画。出力4716732 bytes / SHA-256 `ae0592640f5fd6a1b82eca04a8f95540c578e828265692f3eb7627b37378a8e5`、
+  25089 packets・**scrambled 0 / TEI 0 / badSync 0**。recisdb参照（null packet除外）と位置合わせで
+  **全25089 packets BYTE一致**（オフセット13219、連続25089）。モジュール: app-local WinSCard.dll（2eb9c13c）＋
+  System32、B25.tvcas、CasProcessor.tvtp、BonDriver_Pipe.dll。`EnableContract=False`・`Instruction=2`は既存iniのまま
+  （変更せず）。
+- **TVTest（DTV-Builds系）**（`run\TVTest-DTV`、tsukumijima/TvCas `cd13585…`のB25.tvcas）: 同じ遅延録画で出力が
+  **logueと同じSHA-256 `ae059264…`・size 4716732**（25089 packets全clear・参照とBYTE一致）。
+- 補足: `/recdelay 3`の「起動直後から録画」形態は出力38308 packets中3252個の先頭残留（v0.2.0 `tv-decode-01`と同数）。
+  これは開始直後の鍵取得待ちの既知挙動であり、「録画先頭から全packet正常」とは書かない。
+- 2026-10-12時点で未認定のまま（別項目）: card抜去中のappからのstale handle/明示再接続、USB切断後のapp再初期化、
+  TvCas stalled daemon下の終了・再起動、外部reader併用、映像・音声表示、長時間運用、全チャンネル。
+  2026-10-13の[bounded follow-up](#2026-10-13-v021-candidate-windows-bounded-follow-up)は一部の限定確認を追加するが、
+  これらの項目を一括認定しない。ASICEN Issue #7のCS2破損調査は別件・未解決のまま。
+
+## 2026-10-12 v0.2.1 candidate 配布binary matrix（E01–E07、E15）
+
+candidateは上記E17節と同一（commit `4dbcf335…`・run `38148226256`）。各環境へexact candidate archiveを配布し、
+archive SHA-256・外側/内側`SHA256SUMS`・manifest（version `0.2.1`・source_ref）を照合してから、§0.1/§3の
+短時間matrix（列挙→list-json型照合→8 receiver 30秒→CARD→物理card抜去/再挿入→USB物理切断/再接続→daemon再起動→
+再capture→cooperative stop・残留確認）を実施した。各物理操作は依頼直前にvibe通知し5分以内に完了。r0–r6の
+sync/TEI/continuity/queue/USB errorは全環境・全世代0。receiver 7は既知burst（rc 8、TEI 約10.9k–11.1k、CC 30–45、
+  sync/queue/usb 0）をv0.2.0のdispositionと同一に維持（E04 gen1とE02 load1はr7もclean）。CCはv0.2.0の約600から
+  30–45へ減ったが、この短時間matrixの計数減少だけでは実TS破損がないことを証明しない。r7の既知burst扱いは維持する。
+
+| 環境 | host / OS（kernel等） | artifact SHA-256 | 時刻(UTC) | 結果 | ログ保存先 |
+|---|---|---|---|---|---|
+| E01 glibc-x86_64 | HAOS Debian/glibc container root | `f67a7cbc…43b5f9` | 10/12 14:46–14:53 | PASS（list ready=8・LISTJSON-OK・gen1-3・card・USB・残留0） | HAOS `/tmp/opencode/px4m-logs-e01` |
+| E02 musl-x86_64 | HAOS Alpine 3.22 add-on（Supervisor） | `ada14ae5…c2b3d2a` | 10/12 14:59–15:07 | PASS（PC/SC step2 exit0・list LISTJSON-OK・load1-3・card・USB・残留0・entrypoint exit0） | `/addon_configs/local_userland_stable_alpine_test/px4-0.2.1/matrix` |
+| E03 glibc-x86_64 | latitude-wlan（Latitude 5300）/ AnduinOS 2.0.4・kernel 7.0.0-38-generic | `f67a7cbc…43b5f9` | 10/12 14:31–14:38 | PASS（gen1-3・card・USB・残留0） | latitude-wlan `~/px4m-logs` |
+| E04 darwin-arm64 | macmini / macOS 26.6.2 | `df8e30d1…6cdf8f` | 10/12 11:30–11:38 | PASS（gen1全clean・gen2/3 r7 known-burst・card・USB・残留0） | macmini `~/px4m-logs` |
+| E05 android-aarch64 | pixel / Android・Termux 2-FD | `065897e6…3bd444` | 10/12 13:17–13:44 | PASS（gen1/2・card・USB切断(usblist消失/DISCONNECTED exit7)・再接続後新daemon ready・gen・残留0） | pixel `~/px4m-logs`・`~/px4u-logs` |
+| E06 android-armv7a | google-tv / Android TV・Termux 2-FD | `565b231d…92d9e0` | 10/12 13:47–14:04 | PASS（gen1/2・card・USB切断・再接続（権限再付与後）新daemon ready・gen・残留0） | google-tv `~/px4m-logs`・`~/px4u-logs`・`~/px4f-logs` |
+| E07 android-x86_64 | bliss / Bliss OS x86_64・Termux 2-FD | `9e2273e6…10f5272` | 10/12 14:15–14:26 | PASS（gen1/2・card・USB（client STREAM_END error7 DISCONNECTED）・再接続後新daemon ready・gen・残留0） | bliss `~/px4m-logs`・`~/px4f-logs` |
+| E15 glibc-aarch64 | switch / Fedora 42 aarch64 | `9bb02448…182403` | 10/12 12:22–12:30 | PASS（gen1-3・card・USB・残留0） | switch `~/px4m-logs` |
+| E15 musl-aarch64 | switch上のAlpine arm64 container（`--network=host --cgroups=disabled`。L4T 4.9 kernelのnetavark/cgroup v2制約への対応） | `1ba23671…c9faf5` | 10/12 12:35–12:41 | PASS（gen1-3・card・USB・残留0） | switch `~/px4m-musl-logs` |
+
+- 各環境のcard抜去は`present=no`＋reader generation 2・ATR/APDUとも exit 9（NO_CARD）、再挿入はgeneration 3・
+  ATR/reset/APDU 10回 rc 0。USB切断はclient `DISCONNECTED`（exit 7）・daemon `shutdown cleanup: USB_IO`（exit 7）、
+  再接続後に新daemonがreadyとなり再captureでPASS。E01/E15/E03はdaemonをSIGTERMでcooperative stop（exit 0）し、
+  runtime dir・process残留なし。
+- E02はadd-onの`candidates/`（v0.2.0 musl）を一時的に0.2.1へ差し替え＋`Dockerfile` ENTRYPOINTを
+  `/config/px4-0.2.1/entrypoint.sh`へ切替え、options（q3u4/smoke）は変更せず rebuild→start→matrix実行→stop後、
+  元のv0.2.0 candidates（sha `52197608…`）・ENTRYPOINTへ復元しrebuildした（optionsは退避・復元の必要がないことを確認）。
+  matrixの物理操作待ちは`WAIT`/`STATE`で監視した。
+- 失敗試行（保持）: E05は初回USB再接続でharness側のUSB path解析バグにより、E06は再接続時のAndroid USB権限制約により
+  gen3未達となり、再試行で`DAEMON2_READY=yes`を得た（candidate非関与。harnessはリポジトリ外の一時スクリプト）。
+  E07はUSB一覧「空」判定が他のUSBデバイス存在で発火しないため、sysfs `0511:084a`数の消失で判定し直して完了。
+
+## 2026-10-13 v0.2.1 candidate Windows bounded follow-up
+
+- 対象: frozen candidate source commit **4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af**、version `0.2.1`。
+  `px4d.exe` SHA-256 **d0feaa34e6535b50452d4cbd4d6b9a1bf3d4f20ffc9f3424d7f4b6c90c84b2a9**、
+  candidate `WinSCard.dll` SHA-256 **2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80**。
+  Windows 11 x64、x64 Windows PowerShell 5.1、通常ユーザーsession。firmwareは利用者提供の既存ファイルで、
+  SHA-256 `5213a5a38872661277a2cc1b2dfdfe88faf06f41205f460f3b51857f0568b484`。全owned test processは停止し、
+  各reportでcleanup errorは0。runtime directoryの削除は各reportに記録された範囲に限る。
+- bounded checks（すべて結果`success`）:
+  1. `results-20261013-064958/summary.json`と`hotplug-probe.stdout.txt`: 一回のcontrolled card hotplugで、
+     `EMPTY_OBSERVED`と`PRESENT_OBSERVED`を確認。stale Status handleへの1回目/2回目はそれぞれ
+     `0x80100069`/`0x80100003`、別のstale Transmit handleへの1回目/2回目もそれぞれ
+     `0x80100069`/`0x80100003`。fresh Connect/Statusはともに`0x00000000`で、disconnect/releaseとdaemon cleanupも成功。
+     観測したcard response bytes、ATR bytes、card identifiersは保存・掲載していない。
+  2. `usb-results-20261013-070341/usb-report.json`: USB不在列挙を確認し、旧daemonはUSB I/O終了code 7、
+     appは51 msでexit 0。再接続後のTS sampleは10,484 packets、scrambled/unmatched/trailing/bad-sync/TEI 0、
+     proven decoded 8,505 packets。最終daemon exit 0、test process残留なし。report上の空runtime directoryは残し、再帰削除していない。
+  3. `stall-DTV-results-20261013-073223/stall-report.json`: corrected controlled paused-daemon runでfeed 7,026,688 bytes、
+     watchdog resumedなし、app close 3,573 ms（5秒以内）。復帰後TSは14,244 packets/matched、proven decoded 11,536、
+     TEI/scrambled/badSync/unmatched/trailingは全て0。old/final daemonとappはexit 0。
+  4. `stall-logue-results-20261013-073311/stall-report.json`: corrected runでもwatchdog resumedなし、feed 7,026,688 bytes、
+     app close 3,576 ms（5秒以内）。復帰後TSは14,244 packets/matched、proven decoded 11,536、
+     TEI/scrambled/badSync/unmatched/trailingは全て0。old/final daemonとappはexit 0。両測定は終了・再起動動作の観測であり、
+     内部`TerminateThread` fallbackの安全性を証明しない。
+  5. `init-failure-results-20261013-075247/init-failure-report.json`: synthetic peerでshort-initとmatching RESETを
+     各1回確認。fixture feed完了、app/peerともexit 0、cleanup error/residueなし。これはmock/synthetic init failure
+     経路であり、物理card resetの実証ではない。
+  6. `init-loader-results-20261013-080258/loader-report.json`: EDCB実processのmodule snapshotで、app-local
+     `WinSCard.dll`（`init-loader-results-20261013-080258/app/WinSCard.dll`、SHA-256 `2eb9c13c420c27bee7690a26c56b0066c98ef5a4c7242a837f7f9c5f144d7e80`）と
+     `C:\WINDOWS\system32\WinSCard.dll`（SHA-256 `07e5f70c4106b02c468b62f525c196c304f090f173feb3eba902eca85c789679`）を
+     loaded moduleとして直接確認し、B25Decoderもapp-localから確認。app/daemon exit 0、runtime除去・残留なし。
+     これは2026-10-12のTS byte-matchからDLL routingを推定した記述を置き換える直接のmodule evidence。
+     このloader runでは新たなdecoded TS comparisonを行っていない。
+  7. `reader-coexistence-results-20261013-081853/coexistence-report.json`: System32 baselineで外部
+     `Identive SCR33xx v2.0 USB SC Reader 0`を1件検出。candidate processでは同readerとPX4 virtual readerを列挙し、
+     一つのcontextで両readerへのshared handleを同時保持。connect/status/transmit/status/disconnect/releaseの
+     return codeは成功、active protocolはT=1、両transmitはresponse length 61と期待されたboolean checksを満たした。
+     module snapshotはcandidate app-local DLLとSystem32 DLL双方のpath/hashを確認。これは同時API coexistenceであり、
+     external readerを使うapplication全体のdecode検証ではない。
+- evidence package: `Windows-remaining-tests-evidence-20261013.zip` SHA-256
+  **ac0def50172fcf3e1d68d13764e07bc1cc416b4688c8a32b5e4ed943f4134cf6**。上記の各result JSON、7チェックの概要、
+  diagnostic source（fixed public INIT commandを含む）およびsanitized stdoutを含む。TS capture・実行binary/DLL・firmware・
+  観測したcard response bytes・ATR bytes・card identifiersは含めない。
+  probe script未配置による初回wrapper終了と、通常権限でのscript copy拒否はdiagnostic preparation failureであり、
+  product failureではない。release notesおよびmachine-readable release manifest/sidecarの更新は保留中。
+- candidate限定のrisk disposition: 今回は新たなsoakと`px4_drv` fresh comparisonを行わない判断を記録する。
+  receiver 7の既知burst/未解決点は継続する。これらのbounded checksはrelease approvalではなく、full release gateを置換しない。
+
 ## 2026-10-11 v0.2.0 candidate 8 binary archive短時間matrix（E02–E07、E15）
 
 candidate・CI run・archive SHA-256は下記E17節と同一（source commit `8c40d495850c332312cd4293489f400c8fb842d4`、
@@ -1199,3 +1394,101 @@ Bliss OSではバックグラウンド時にTermux UID全体が凍結し、`term
 - 2時間の8 receiver soakではreceiver 0〜6はtransport error 0。receiver 7でTEI 10,974、continuity error 453、sync/queue-drop/USB error 0。同じ約11k TEIの署名は同一個体の参照カーネルドライバ（`tsukumijima/px4_drv`）でも同一周波数（T22）で再現しており、本ドライバ固有の回帰ではなく個体固有の既知事象として記録しています（原因および他個体での挙動は未確認）。
 - FreeBSDでは接続直後に片bridgeのfirmware version queryが1回TIMEOUTする事象を2回観測。再試行後は正常。
 - Windowsは本プロダクトのサポート外。
+
+## 2026-10-13 v0.2.1 candidate reproducibility review
+
+- candidate source commit: `4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af`;
+  tree: `bb1c68267994c1a0c231fc4abd20110a51a7b017`.
+  candidate push run [38148226256](https://github.com/Khronos31/px4-userland/actions/runs/38148226256),
+  attempt 1, `release-candidate` artifact `11706120601`.
+  independent workflow_dispatch run [38148340438](https://github.com/Khronos31/px4-userland/actions/runs/38148340438),
+  attempt 1, artifact `11705965892`.
+  Both are the same repository, source SHA/tree and `.github/workflows/build_userland.yml`;
+  all 20 jobs in each run completed successfully. Both artifacts were unexpired when checked.
+- Both downloaded artifact ZIPs contained exactly the expected 9 binary archives, 1 source archive
+  and outer `SHA256SUMS`. All 11 enclosed files were compared without timestamp/UUID/signature
+  masking and were byte-identical. The 10 outer checksum entries matched the actual archive bytes.
+  Outer `SHA256SUMS` SHA-256:
+  `4805aafe99e6e1f9a06957a1baded3ac4224c2e9c1d06f811aecd3a179f4e10b`.
+  GitHub's upload-wrapper ZIP digests differ and are not substituted for the enclosed archive hashes.
+- Corresponding job logs were compared for observed compiler/toolchain, installed package versions,
+  container digests and runner image IDs. Linux static/musl used GCC/G++ 14.2.0-r6,
+  binutils 2.44-r3, musl-dev 1.2.5-r12, CMake 3.31.7-r1, samurai 1.2-r7,
+  pkgconf 2.4.3-r0 and pcsc-lite-dev 2.3.3-r0.
+  Alpine image digest: `5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8`.
+  glibc IFD used Debian 11 digest
+  `6f519a81440354a85eb592c5f32109ab80605f6b892455983a6f618bf87fabe9`,
+  Debian snapshot `20260825T000000Z`, GCC 10.2.1-6, libc6-dev 2.31-13+deb11u14,
+  binutils 2.35.2-2, CMake 3.18.4-2+deb11u1, Ninja 1.10.1-1 and pcsc-lite 1.9.1-1.
+- macOS build observations matched: macOS 14.8.9/23J631, Xcode 15.4/15F31d,
+  SDK 14.5, Apple clang 15.0.0 (clang-1500.3.9.4), Apple ld-1053.12,
+  CMake 4.4.3, Ninja 1.13.2, pcsc-lite 2.5.1 and pkgconf 3.0.6.
+  All three Android ABI jobs used NDK r27d, Clang 18.0.4, API 24,
+  CMake 3.28.3-1build7 and Ninja 1.11.1-2.
+  Windows cross-build used llvm-mingw 20250910 UCRT, Clang 21.1.1,
+  CMake 3.28.3-1build7 and Ninja 1.11.1-2.
+  The committed Windows build script validates toolchain archive SHA-256
+  `f83556c9ffa4d4291fadea1a0776c1383332dacdf4d7fbdf974c2928cb32c6f7`
+  before use. The common libusb 1.0.30 source archive is
+  `fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf`.
+- All 20 corresponding job image assignments matched:
+  Ubuntu x86_64 `20261004.327.1`, Ubuntu arm64 `20261004.142.1`,
+  macOS arm64 `20260831.0302.1`, Windows Server 2022 `20261004.326.1`.
+  Full per-job images, installed package values and 11 asset hashes are recorded in the same-version sidecar.
+- This is a source/input/archive reproducibility result, not a new hardware or application claim.
+  Native Windows Python 3.14.8 ran 83 release-helper tests on both the frozen candidate
+  and docs worktree; each had 56 errors, with the same failing cases. This is not a
+  passed native-Windows helper run. Most errors occur because test fixtures write the
+  outer `SHA256SUMS` with Windows CRLF while the production verifier intentionally
+  requires LF; this does not explain every error. A separate `KeyError` for
+  `publication_attempted` remains root-cause unconfirmed.
+  The frozen-candidate log is `C:\Users\YUNOMI~1\AppData\Local\Temp\px4-release-tests-frozen-20261013.log`
+  and the docs-worktree log is `C:\Users\YUNOMI~1\AppData\Local\Temp\px4-release-tests-docs-final-20261013.log`.
+  Actual Ubuntu release-helper logs show 83 tests and OK in each exact run
+  (jobs `114495974079` and `114496321345`).
+
+## 2026-10-13 v0.2.1 support review
+
+- Reviewed the existing README support table, Windows packaging description, SPEC release-specific
+  disposition, and v0.2.1 evidence sections. The nine distribution-target short matrices and the
+  bounded Windows application results do not extend certification to every model, access path,
+  application or long-duration use.
+- Keep the v0.2.1 decision not to perform a new soak or fresh px4_drv comparison, the receiver 7
+  limitation, all still-unverified M1UR/S1UR/native-adapter combinations, and the existing Android
+  and aggregate aarch64 qualifications. The limited external-reader basic-API test is not a claim
+  that all applications decode through that reader.
+- Keep Issue #52's non-ASCII ready-line limitation. The explicit-runtime versus ambient
+  LOCALAPPDATA startup fix is a different issue.
+- Re-read after the README correction: the Windows Q3U4 row identifies the Phase 1/2 scope and
+  records the shipped limited x64 application-local B25 WinSCard DLL as a limited Q3U4 smoke check
+  for reader enumeration, connection, status and normal release. It links to the bounded
+  v0.2.1 result and the API-scope description. General WinSCard/B25 application compatibility
+  remains unverified, and system PC/SC IFD registration remains unsupported. The native-card
+  adapter status is limited to that smoke scope; the Issue #52 warning remains unchanged.
+
+## 2026-10-13 v0.2.1 pre-tag publication review
+
+- The candidate's exact 10 archives and outer checksum were re-read. All inner checksums and
+  manifest file hash/size entries matched: Android 17 checksum entries per ABI, macOS 13,
+  Linux 15 per archive, Windows 18, source 423. Each binary manifest identifies v0.2.1 and
+  candidate `4dbcf335…`; source-manifest records the exact candidate commit/tree.
+- Source `repository/` contains exactly 265 tracked files, with no missing or extra files
+  relative to the complete Git tree `bb1c682…`. All 265 Git blob contents and file modes match.
+  The original libusb source archive in `third_party/libusb-1.0.30.tar.bz2` matches
+  `fea36f34…`. The complete source includes PROVENANCE.md and BUILD-RELINK.md with the
+  expected source identity and Linux/macOS/Android/Windows rebuild/relink sections.
+- All 10 archives contain LICENSE, THIRD_PARTY_NOTICES.md and DEPENDENCY-NOTICE.txt.
+  Every binary contains the libusb COPYING text; the source contains its matching copy.
+  COPYING SHA-256 is `5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a`.
+  Windows also includes LLVM/MinGW runtime license files. CI archive audits and all platform
+  source/relink/smoke jobs succeeded in both exact runs. This is an engineering packaging review,
+  not a legal opinion.
+- The committed Markdown at `8c7097d` was checked against AGENTS.md's release-note format,
+  the recorded v0.2.1 scope and retained limitations. Its SHA-256 is
+  `d7c9086cede878c60f9eac3da4f27d823c22980ab108e328233a304614bcb999`.
+  It retains the limited x64/B25 API scope, receiver 7 caveat and Issue #52 workaround.
+- At pre-tag review time no v0.2.1 tag or GitHub Release existed. Final documentation-only
+  Git inventory and completed sidecar validation must be checked at the final result commit.
+  Candidate-versus-tag archive comparison, exact tag-run provenance, Draft download comparison,
+  publication and post-publication/Latest verification belong to the later tag workflow and
+  have not yet occurred. This pre-tag review does not report those later checks as completed.
