@@ -1394,3 +1394,101 @@ Bliss OSではバックグラウンド時にTermux UID全体が凍結し、`term
 - 2時間の8 receiver soakではreceiver 0〜6はtransport error 0。receiver 7でTEI 10,974、continuity error 453、sync/queue-drop/USB error 0。同じ約11k TEIの署名は同一個体の参照カーネルドライバ（`tsukumijima/px4_drv`）でも同一周波数（T22）で再現しており、本ドライバ固有の回帰ではなく個体固有の既知事象として記録しています（原因および他個体での挙動は未確認）。
 - FreeBSDでは接続直後に片bridgeのfirmware version queryが1回TIMEOUTする事象を2回観測。再試行後は正常。
 - Windowsは本プロダクトのサポート外。
+
+## 2026-10-13 v0.2.1 candidate reproducibility review
+
+- candidate source commit: `4dbcf335a5d5b134ddc4a3ca29e4afb023ef91af`;
+  tree: `bb1c68267994c1a0c231fc4abd20110a51a7b017`.
+  candidate push run [38148226256](https://github.com/Khronos31/px4-userland/actions/runs/38148226256),
+  attempt 1, `release-candidate` artifact `11706120601`.
+  independent workflow_dispatch run [38148340438](https://github.com/Khronos31/px4-userland/actions/runs/38148340438),
+  attempt 1, artifact `11705965892`.
+  Both are the same repository, source SHA/tree and `.github/workflows/build_userland.yml`;
+  all 20 jobs in each run completed successfully. Both artifacts were unexpired when checked.
+- Both downloaded artifact ZIPs contained exactly the expected 9 binary archives, 1 source archive
+  and outer `SHA256SUMS`. All 11 enclosed files were compared without timestamp/UUID/signature
+  masking and were byte-identical. The 10 outer checksum entries matched the actual archive bytes.
+  Outer `SHA256SUMS` SHA-256:
+  `4805aafe99e6e1f9a06957a1baded3ac4224c2e9c1d06f811aecd3a179f4e10b`.
+  GitHub's upload-wrapper ZIP digests differ and are not substituted for the enclosed archive hashes.
+- Corresponding job logs were compared for observed compiler/toolchain, installed package versions,
+  container digests and runner image IDs. Linux static/musl used GCC/G++ 14.2.0-r6,
+  binutils 2.44-r3, musl-dev 1.2.5-r12, CMake 3.31.7-r1, samurai 1.2-r7,
+  pkgconf 2.4.3-r0 and pcsc-lite-dev 2.3.3-r0.
+  Alpine image digest: `5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8`.
+  glibc IFD used Debian 11 digest
+  `6f519a81440354a85eb592c5f32109ab80605f6b892455983a6f618bf87fabe9`,
+  Debian snapshot `20260825T000000Z`, GCC 10.2.1-6, libc6-dev 2.31-13+deb11u14,
+  binutils 2.35.2-2, CMake 3.18.4-2+deb11u1, Ninja 1.10.1-1 and pcsc-lite 1.9.1-1.
+- macOS build observations matched: macOS 14.8.9/23J631, Xcode 15.4/15F31d,
+  SDK 14.5, Apple clang 15.0.0 (clang-1500.3.9.4), Apple ld-1053.12,
+  CMake 4.4.3, Ninja 1.13.2, pcsc-lite 2.5.1 and pkgconf 3.0.6.
+  All three Android ABI jobs used NDK r27d, Clang 18.0.4, API 24,
+  CMake 3.28.3-1build7 and Ninja 1.11.1-2.
+  Windows cross-build used llvm-mingw 20250910 UCRT, Clang 21.1.1,
+  CMake 3.28.3-1build7 and Ninja 1.11.1-2.
+  The committed Windows build script validates toolchain archive SHA-256
+  `f83556c9ffa4d4291fadea1a0776c1383332dacdf4d7fbdf974c2928cb32c6f7`
+  before use. The common libusb 1.0.30 source archive is
+  `fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf`.
+- All 20 corresponding job image assignments matched:
+  Ubuntu x86_64 `20261004.327.1`, Ubuntu arm64 `20261004.142.1`,
+  macOS arm64 `20260831.0302.1`, Windows Server 2022 `20261004.326.1`.
+  Full per-job images, installed package values and 11 asset hashes are recorded in the same-version sidecar.
+- This is a source/input/archive reproducibility result, not a new hardware or application claim.
+  Native Windows Python 3.14.8 ran 83 release-helper tests on both the frozen candidate
+  and docs worktree; each had 56 errors, with the same failing cases. This is not a
+  passed native-Windows helper run. Most errors occur because test fixtures write the
+  outer `SHA256SUMS` with Windows CRLF while the production verifier intentionally
+  requires LF; this does not explain every error. A separate `KeyError` for
+  `publication_attempted` remains root-cause unconfirmed.
+  The frozen-candidate log is `C:\Users\YUNOMI~1\AppData\Local\Temp\px4-release-tests-frozen-20261013.log`
+  and the docs-worktree log is `C:\Users\YUNOMI~1\AppData\Local\Temp\px4-release-tests-docs-final-20261013.log`.
+  Actual Ubuntu release-helper logs show 83 tests and OK in each exact run
+  (jobs `114495974079` and `114496321345`).
+
+## 2026-10-13 v0.2.1 support review
+
+- Reviewed the existing README support table, Windows packaging description, SPEC release-specific
+  disposition, and v0.2.1 evidence sections. The nine distribution-target short matrices and the
+  bounded Windows application results do not extend certification to every model, access path,
+  application or long-duration use.
+- Keep the v0.2.1 decision not to perform a new soak or fresh px4_drv comparison, the receiver 7
+  limitation, all still-unverified M1UR/S1UR/native-adapter combinations, and the existing Android
+  and aggregate aarch64 qualifications. The limited external-reader basic-API test is not a claim
+  that all applications decode through that reader.
+- Keep Issue #52's non-ASCII ready-line limitation. The explicit-runtime versus ambient
+  LOCALAPPDATA startup fix is a different issue.
+- Re-read after the README correction: the Windows Q3U4 row identifies the Phase 1/2 scope and
+  records the shipped limited x64 application-local B25 WinSCard DLL as a limited Q3U4 smoke check
+  for reader enumeration, connection, status and normal release. It links to the bounded
+  v0.2.1 result and the API-scope description. General WinSCard/B25 application compatibility
+  remains unverified, and system PC/SC IFD registration remains unsupported. The native-card
+  adapter status is limited to that smoke scope; the Issue #52 warning remains unchanged.
+
+## 2026-10-13 v0.2.1 pre-tag publication review
+
+- The candidate's exact 10 archives and outer checksum were re-read. All inner checksums and
+  manifest file hash/size entries matched: Android 17 checksum entries per ABI, macOS 13,
+  Linux 15 per archive, Windows 18, source 423. Each binary manifest identifies v0.2.1 and
+  candidate `4dbcf335…`; source-manifest records the exact candidate commit/tree.
+- Source `repository/` contains exactly 265 tracked files, with no missing or extra files
+  relative to the complete Git tree `bb1c682…`. All 265 Git blob contents and file modes match.
+  The original libusb source archive in `third_party/libusb-1.0.30.tar.bz2` matches
+  `fea36f34…`. The complete source includes PROVENANCE.md and BUILD-RELINK.md with the
+  expected source identity and Linux/macOS/Android/Windows rebuild/relink sections.
+- All 10 archives contain LICENSE, THIRD_PARTY_NOTICES.md and DEPENDENCY-NOTICE.txt.
+  Every binary contains the libusb COPYING text; the source contains its matching copy.
+  COPYING SHA-256 is `5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a`.
+  Windows also includes LLVM/MinGW runtime license files. CI archive audits and all platform
+  source/relink/smoke jobs succeeded in both exact runs. This is an engineering packaging review,
+  not a legal opinion.
+- The committed Markdown at `8c7097d` was checked against AGENTS.md's release-note format,
+  the recorded v0.2.1 scope and retained limitations. Its SHA-256 is
+  `d7c9086cede878c60f9eac3da4f27d823c22980ab108e328233a304614bcb999`.
+  It retains the limited x64/B25 API scope, receiver 7 caveat and Issue #52 workaround.
+- At pre-tag review time no v0.2.1 tag or GitHub Release existed. Final documentation-only
+  Git inventory and completed sidecar validation must be checked at the final result commit.
+  Candidate-versus-tag archive comparison, exact tag-run provenance, Draft download comparison,
+  publication and post-publication/Latest verification belong to the later tag workflow and
+  have not yet occurred. This pre-tag review does not report those later checks as completed.
