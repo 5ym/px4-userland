@@ -183,10 +183,14 @@ class GitHub:
     def download(self, path, destination):
         url = self.api_url(path)
         authenticated = True
+        actions_artifact = re.fullmatch(
+            re.escape(self.prefix) + r"/actions/artifacts/[1-9][0-9]*/zip", path,
+        ) is not None
         for _ in range(6):
             try:
-                response = self.request("GET", url, authenticated=authenticated,
-                                        accept="application/octet-stream")
+                accept = ("application/vnd.github+json"
+                          if authenticated and actions_artifact else "application/octet-stream")
+                response = self.request("GET", url, authenticated=authenticated, accept=accept)
             except HTTPError as exc:
                 if exc.code in (301, 302, 303, 307, 308):
                     url = safe_download_url(exc.headers.get("Location", ""))
