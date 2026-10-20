@@ -81,7 +81,7 @@ jobs:
                 attempt=$((attempt + 1));
               done
             };
-            apt_install_retry cmake ninja-build g++ pkg-config libpcsclite-dev binutils python3 git;
+            apt_install_retry cmake ninja-build g++ pkg-config libpcsclite-dev binutils python3 git ca-certificates;
             scripts/build-linux-ifd.sh --libc glibc --output /src/build-ifd-glibc;
             python3 -c "import ctypes; getattr(ctypes.CDLL(\"/src/build-ifd-glibc/px4-userland-ifd.so\"), \"IFDHCreateChannel\")";
             scripts/package-artifact.sh --platform linux-glibc-x86_64 --version "$(tr -d "\n" < VERSION)" --static-build-dir build-static --ifd-library build-ifd-glibc/px4-userland-ifd.so --reader-template packaging/pcsc/reader.conf.d/px4-userland.conf.in --source-ref "$GITHUB_SHA" --output-dir release-candidate;
@@ -154,7 +154,7 @@ jobs:
                 attempt=$((attempt + 1));
               done
             };
-            apt_install_retry cmake ninja-build g++ pkg-config libpcsclite-dev python3 binutils git;
+            apt_install_retry cmake ninja-build g++ pkg-config libpcsclite-dev python3 binutils git ca-certificates;
             scripts/build-linux-ifd.sh --libc glibc --output /src/build-ifd-glibc;
             python3 -c "import ctypes; getattr(ctypes.CDLL(\"/src/build-ifd-glibc/px4-userland-ifd.so\"), \"IFDHCreateChannel\")";
             scripts/package-artifact.sh --platform linux-glibc-aarch64 --version "$(tr -d "\n" < VERSION)" --static-build-dir build-static --ifd-library build-ifd-glibc/px4-userland-ifd.so --reader-template packaging/pcsc/reader.conf.d/px4-userland.conf.in --source-ref "$GITHUB_SHA" --output-dir release-candidate'
