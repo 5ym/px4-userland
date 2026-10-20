@@ -15,8 +15,10 @@ terms in [`LICENSE`](LICENSE).
   headers; untouched files keep the original snapshot. Between the two snapshots, the origin paths used by this
   project differ only in `driver/px4_usb.c` and `driver/px4_usb.h` (the DTV02A-5TS-P product ID).
 - Original upstream: [`nns779/px4_drv`](https://github.com/nns779/px4_drv).
-- Current product: `Khronos31/px4-userland`, an independent standalone repository for a Linux/Android/macOS userland
-  product for PLEX PX-Q3U4, PX-MLT5PE, and DTV02A-5TS-P.
+- Current product: `Khronos31/px4-userland`, standalone libusb userspace drivers and tools
+  for PLEX and e-Better tuners on Linux, Android, macOS, and Windows. See
+  [README](README.md) and [SPEC](SPEC.md) for implemented profiles, and
+  [platform validation results](docs/platforms/validation-results.md) for the tested scope.
 - License for this project and its derivative portions: [`GPL-2.0-only`](LICENSE).
 
 Git author names and commit history are evidence about repository activity; they are not, by themselves, a list of
@@ -28,6 +30,18 @@ source-snapshot maintenance fact without guessing a copyright holder. For the sm
 `card.cpp`, and `card_tests.cpp`, the audit records that the relevant WinUSB source files were committed/maintained
 in the direct-parent history by tsukumijima; that is a commit-author and maintenance fact, not a copyright-holder
 claim.
+
+## dtv-userland-core foundation extraction
+
+The first foundation increment extracts audited independent core types into a separate MIT-licensed library,
+`dtv-userland-core`, used by this product through the pinned commit in `cmake/dtv-userland-core.revision` (and the
+`dtv::core` CMake target). The product no longer carries its own `userland/src/error.cpp`, `userland/src/logging.cpp`,
+or `userland/src/mock_transport.cpp` implementations; `userland/include/px4/{error,logging,transport,mock_transport}.h`
+now alias the shared `dtv::userland` types, while the product keeps its device endpoint/transfer constants and a
+default-constructible `MockTransport` facade that supplies the PX4 policy explicitly. `userland/include/px4/firmware.h`
+befriends `dtv::userland::Result` because `Result` is now the shared type. The product remains GPL-2.0-only; the
+foundation library carries the MIT license recorded in its own `LICENSE`/`PROVENANCE.json`, which the
+corresponding-source archive bundles under `repository/third_party/dtv-userland-core`.
 
 ## Date and audit scope
 

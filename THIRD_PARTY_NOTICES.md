@@ -10,7 +10,9 @@ corresponding-source archive, then uploads them together with an outer `SHA256SU
 The repository source does not vendor libusb, pcsc-lite, the Android NDK, libc++/libc++abi, musl, or firmware. Native
 CMake discovers libusb and PC/SC headers from the host or from explicit build inputs. The Linux static, macOS, and
 Android release builds obtain the verified libusb source archive during the build; it is not checked into this
-repository.
+repository. The MIT `dtv-userland-core` foundation is likewise a pinned build dependency, resolved by CMake rather
+than checked in as working files; the corresponding-source archive bundles the pinned commit under
+`repository/third_party/dtv-userland-core`.
 
 The source archive is made from the exact committed source ref selected by the workflow. It also contains the exact
 verified libusb 1.0.30 source archive, its `COPYING`, checksums, and `BUILD-RELINK.md`. It excludes `.git`, build outputs,
@@ -22,6 +24,42 @@ Every binary archive (Linux, macOS, Android, and Windows) includes the exact lib
 `libusb/COPYING`, verified against the pinned SHA-256.
 
 Primary license text: [libusb 1.0.30 `COPYING`](https://github.com/libusb/libusb/blob/v1.0.30/COPYING).
+
+## dtv-userland-core foundation library (MIT)
+
+The portable Error/Result, logging, transport byte-view, and mock-transport foundation is provided by the
+`dtv-userland-core` library under the MIT License. It is not vendored as working files in the repository source;
+CMake resolves it from the commit pinned in `cmake/dtv-userland-core.revision` (or from a bundled
+corresponding-source tree) and the product links the `dtv::core` target. The corresponding-source archive exports
+that exact commit under `repository/third_party/dtv-userland-core`, including its `LICENSE` and `PROVENANCE.json`.
+Binary archives that statically link the foundation must carry the exact MIT license text for it. The product itself
+remains GPL-2.0-only; the MIT foundation is not a replacement for the product license.
+
+Full license text for the statically linked foundation:
+
+```
+MIT License
+
+Copyright (c) 2026 Khronos31
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## Android binary archives
 

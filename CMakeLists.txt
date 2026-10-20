@@ -142,16 +142,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(cmake/DtvUserlandCoreDependency.cmake)
+px4_add_dtv_userland_core()
+
 add_library(px4_userland_core STATIC
     userland/src/card.cpp
     userland/src/card_service.cpp
-    userland/src/error.cpp
     userland/src/firmware.cpp
     userland/src/identity.cpp
     userland/src/ipc.cpp
     userland/src/it930x.cpp
     userland/src/it930x_protocol.cpp
-    userland/src/logging.cpp
     userland/src/bridge_i2c.cpp
     userland/src/cxd2856er.cpp
     userland/src/cxd2858er.cpp
@@ -193,7 +194,7 @@ target_include_directories(px4_userland_core
 )
 
 target_compile_features(px4_userland_core PUBLIC cxx_std_17)
-target_link_libraries(px4_userland_core PUBLIC Threads::Threads)
+target_link_libraries(px4_userland_core PUBLIC Threads::Threads dtv::core)
 
 function(px4_enable_project_warnings target)
     target_compile_options(${target} PRIVATE
@@ -332,7 +333,6 @@ if(WIN32)
     if(PX4_BUILD_WINSCARD)
         # Client-only IPC: the proxy has no USB backend, daemon, or firmware code.
         add_library(px4_winscard_client STATIC
-            userland/src/error.cpp
             userland/src/ipc.cpp
             userland/src/control_client.cpp
             userland/src/windows/windows_ipc.cpp
@@ -343,7 +343,7 @@ if(WIN32)
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
         )
         target_compile_features(px4_winscard_client PUBLIC cxx_std_17)
-        target_link_libraries(px4_winscard_client PUBLIC advapi32 bcrypt ws2_32 Threads::Threads)
+        target_link_libraries(px4_winscard_client PUBLIC advapi32 bcrypt ws2_32 Threads::Threads dtv::core)
         px4_enable_project_warnings(px4_winscard_client)
         add_library(px4_winscard SHARED
             userland/src/windows/winscard_proxy.cpp
@@ -427,13 +427,13 @@ if(WIN32)
             userland/src/px4d_args.cpp
             userland/src/frontend_probe_support.cpp
             userland/src/ts_probe_support.cpp
-            userland/src/mock_transport.cpp
         )
         target_include_directories(px4_userland_windows_test_support
             PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
         )
         target_compile_features(px4_userland_windows_test_support PUBLIC cxx_std_17)
+        target_link_libraries(px4_userland_windows_test_support PUBLIC dtv::core)
         px4_enable_project_warnings(px4_userland_windows_test_support)
 
         # Reuse the original test_main aggregator and the unchanged portable
@@ -708,7 +708,6 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
         userland/src/px4d_args.cpp
         userland/src/frontend_probe_support.cpp
         userland/src/ts_probe_support.cpp
-        userland/src/mock_transport.cpp
         userland/src/libusb_transport_test_access.cpp
     )
     target_include_directories(px4_userland_test_support
@@ -716,6 +715,7 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
     )
     target_compile_features(px4_userland_test_support PUBLIC cxx_std_17)
+    target_link_libraries(px4_userland_test_support PUBLIC dtv::core)
     px4_enable_project_warnings(px4_userland_test_support)
 
     add_executable(px4_userland_tests
