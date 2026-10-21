@@ -1478,6 +1478,12 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
             fail(f"forbidden source archive member: {name}")
         if SOURCE_WINDOWS_TOKEN.search(name) and not WINDOWS_SOURCE_ALLOWED.fullmatch(name):
             fail(f"forbidden source archive member: {name}")
+    # The shared foundation dependency is declared by the selected product
+    # snapshot's lock file.  Historical snapshots that predate the dependency
+    # are audited without it; a snapshot that declares it must ship the exact
+    # pinned common source and metadata.
+    common_lock = "repository/cmake/dtv-userland-core.revision"
+    common_prefix = "repository/third_party/dtv-userland-core/"
     required = {
         "BUILD-RELINK.md",
         "source-manifest.json",
@@ -1496,6 +1502,24 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
         "repository/scripts/test-static-relink.sh",
         "repository/packaging/REBUILD.md.in",
     }
+    if common_lock in members:
+        # The declared dependency must ship the build closure of the pinned
+        # foundation project (its CMake entry points, public headers, and
+        # sources), not just a license and provenance stub.
+        required |= {common_lock, common_prefix + "LICENSE", common_prefix + "PROVENANCE.json"}
+        required |= {
+            common_prefix + "CMakeLists.txt",
+            common_prefix + "cmake/dtv_userland_coreConfig.cmake.in",
+            common_prefix + "include/dtv/userland/error.h",
+            common_prefix + "include/dtv/userland/logging.h",
+            common_prefix + "include/dtv/userland/transport.h",
+            common_prefix + "include/dtv/userland/mock_transport.h",
+            common_prefix + "include/dtv/userland/wire.h",
+            common_prefix + "src/error.cpp",
+            common_prefix + "src/logging.cpp",
+            common_prefix + "src/mock_transport.cpp",
+            common_prefix + "src/wire.cpp",
+        }
     if any(name.startswith("repository/userland/src/windows/") for name in members):
         # A committed Windows tree must ship the complete adapter,
         # test, build script, and header coverage; a partial tree is rejected.
@@ -1505,7 +1529,8 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
     if not required.issubset(members):
         fail(f"source archive is missing: {sorted(required-set(members))}")
     for name in members:
-        if name not in required and not name.startswith("repository/") and not name.startswith("third_party/libusb-1.0.30/"):
+        if name not in required and not name.startswith("repository/") \
+                and not name.startswith("third_party/libusb-1.0.30/"):
             fail(f"unexpected source archive member: {name}")
     manifest = json.loads(read_archive_file(args.archive.resolve(), "source-manifest.json"))
     if manifest.get("schema") != 1 or manifest.get("libusb_version") != "1.0.30":
@@ -1535,6 +1560,28 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
                 fail(f"source manifest file record mismatch: {name}")
     if manifest.get("libusb_archive_sha256") != LIBUSB_SHA256:
         fail("source manifest does not record the pinned libusb checksum")
+    common_commit = manifest.get("dtv_userland_core_commit")
+    if common_lock in members:
+        lock_revision = read_archive_file(args.archive.resolve(), common_lock).decode("utf-8").strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", lock_revision) or lock_revision == "0" * 40:
+            fail("product snapshot does not pin a verified dtv-userland-core commit")
+        if not isinstance(common_commit, str) or common_commit != lock_revision:
+            fail("source manifest dtv-userland-core commit does not match the product lock")
+        if manifest.get("dtv_userland_core_license") != "MIT":
+            fail("source manifest does not record the dtv-userland-core license")
+        common_license = read_archive_file(
+            args.archive.resolve(), common_prefix + "LICENSE").decode("utf-8")
+        if "MIT License" not in common_license:
+            fail("bundled dtv-userland-core LICENSE is not MIT")
+        common_provenance = read_archive_file(
+            args.archive.resolve(), common_prefix + "PROVENANCE.json").decode("utf-8")
+        if not common_provenance.strip():
+            fail("bundled dtv-userland-core PROVENANCE.json is empty")
+    else:
+        if common_commit is not None or manifest.get("dtv_userland_core_license") is not None:
+            fail("source manifest declares dtv-userland-core without a product lock")
+        if any(name.startswith(common_prefix) for name in members):
+            fail("source archive bundles dtv-userland-core without a product lock")
     if "COPYING" not in "\n".join(members):
         fail("libusb COPYING is missing from source archive")
     embedded = read_archive_file(args.archive.resolve(), "third_party/libusb-1.0.30.tar.bz2")
@@ -1561,6 +1608,10 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
     if source_fields.get("dependency.libusb.version") != "1.0.30" or \
             source_fields.get("corresponding-source-archive") != "present":
         fail("source dependency notice is missing stable dependency fields")
+    if common_lock in members:
+        if source_fields.get("dependency.dtv-userland-core.license") != "MIT" or \
+                source_fields.get("dependency.dtv-userland-core.commit") != common_commit:
+            fail("source dependency notice is missing the dtv-userland-core fields")
     verify_checksums(args.archive.resolve(), members)
     return {"archive": str(args.archive.resolve()), "kind": "source", "members": sorted(members), "manifest": manifest}
 

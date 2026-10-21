@@ -46,9 +46,8 @@ namespace {
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
 
-// AF_UNIX on Windows uses a Win32 path. The whole <runtime>\px4-userland\
-// <instance>\<endpoint> path must stay under the small sun_path field of
-// SOCKADDR_UN, which is the practical endpoint length limit here.
+// AF_UNIX on Windows uses a Win32 path. The complete runtime, product,
+// instance, and endpoint path must fit the SOCKADDR_UN sun_path limit.
 // The endpoint path must fit the platform AF_UNIX address plus its terminating
 // NUL. Derive it from the actual SOCKADDR_UN field rather than a magic number.
 constexpr std::size_t kMaxEndpointPathBytes = sizeof(SOCKADDR_UN{}.sun_path);
