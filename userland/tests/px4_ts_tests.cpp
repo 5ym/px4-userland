@@ -871,6 +871,22 @@ bool test_argument_contract()
                   "--system", "isdb-t", "--frequency-khz", "40000"}).valid);
     CHECK(parse({"px4-ts", "--device", "00001205000960", "--receiver", "7",
                  "--system", "isdb-s", "--frequency-khz", "146875", "--slot", "0"}).valid);
+    for (const char* spelling : {"isdb-t", "ISDB-T", "IsDb-T"}) {
+        const Px4TsArguments arguments = parse(
+            {"px4-ts", "--device", "00001205000960", "--receiver", "0",
+             "--system", spelling, "--frequency-khz", "40000"});
+        CHECK(arguments.valid && arguments.system == System::ISDB_T);
+    }
+    for (const char* spelling : {"isdb-s", "ISDB-S", "IsDb-S"}) {
+        const Px4TsArguments arguments = parse(
+            {"px4-ts", "--device", "00001205000960", "--receiver", "0",
+             "--system", spelling, "--frequency-khz", "146875", "--slot", "0"});
+        CHECK(arguments.valid && arguments.system == System::ISDB_S);
+    }
+    CHECK(!parse({"px4-ts", "--device", "00001205000960", "--receiver", "0",
+                  "--system", "ISDB-T2", "--frequency-khz", "40000"}).valid);
+    CHECK(!parse({"px4-ts", "--device", "00001205000960", "--receiver", "0",
+                  "--system", "ISDB-C", "--frequency-khz", "40000"}).valid);
     CHECK(parse({"px4-ts", "--device", "00001205000960", "--receiver", "0",
                  "--system", "isdb-t", "--frequency-khz", "40000"}).valid);
     for (unsigned int receiver = 0U; receiver < 8U; ++receiver) {
