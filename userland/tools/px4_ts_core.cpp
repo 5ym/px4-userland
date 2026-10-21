@@ -50,13 +50,25 @@ bool parse_unsigned(std::string_view value, T& output) noexcept
     return true;
 }
 
+// CLI input names are ASCII identifiers: fold A-Z only (not locale-dependent).
+bool ascii_system_equals(std::string_view value, std::string_view expected) noexcept
+{
+    if (value.size() != expected.size()) return false;
+    for (std::size_t i = 0U; i < value.size(); ++i) {
+        char ch = value[i];
+        if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+        if (ch != expected[i]) return false;
+    }
+    return true;
+}
+
 bool parse_system(std::string_view value, System& system) noexcept
 {
-    if (value == "isdb-t") {
+    if (ascii_system_equals(value, "isdb-t")) {
         system = System::ISDB_T;
         return true;
     }
-    if (value == "isdb-s") {
+    if (ascii_system_equals(value, "isdb-s")) {
         system = System::ISDB_S;
         return true;
     }
