@@ -433,14 +433,15 @@ if(WIN32)
 
     add_executable(px4ctl
         userland/tools/px4ctl.cpp
-        userland/tools/px4ctl_format.cpp
     )
-    target_link_libraries(px4ctl PRIVATE px4_userland_windows_ipc shell32)
+    target_link_libraries(px4ctl PRIVATE px4_userland_core dtv::host_ctl shell32)
     target_include_directories(px4ctl PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
     )
     target_compile_features(px4ctl PRIVATE cxx_std_17)
+    target_compile_definitions(px4ctl PRIVATE
+        PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}")
     px4_enable_project_warnings(px4ctl)
 
     add_executable(px4-ts
@@ -974,11 +975,12 @@ endif()
 if(TARGET px4_userland_posix_ipc)
     add_executable(px4ctl
         userland/tools/px4ctl.cpp
-        userland/tools/px4ctl_format.cpp
     )
-    target_link_libraries(px4ctl PRIVATE px4_userland_posix_ipc)
+    target_link_libraries(px4ctl PRIVATE px4_userland_core dtv::host_ctl)
     target_include_directories(px4ctl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/include)
     target_compile_features(px4ctl PRIVATE cxx_std_17)
+    target_compile_definitions(px4ctl PRIVATE
+        PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}")
     px4_enable_project_warnings(px4ctl)
 
     add_executable(px4-ts
