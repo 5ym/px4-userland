@@ -132,7 +132,13 @@ int list_devices() noexcept
         std::fprintf(stderr, "enumeration failed: %s\n", error_string(grouping.error()));
         return exit_status(grouping.error());
     }
-    const std::string output = tools::format_device_list_json(grouping.value());
+    const auto formatted = tools::format_device_list_json(
+        grouping.value(), PX4_USERLAND_PRODUCT_VERSION);
+    if (!formatted) {
+        std::fprintf(stderr, "discovery JSON: %s\n", error_string(formatted.error()));
+        return exit_status(formatted.error());
+    }
+    const std::string& output = formatted.value();
     if ((!output.empty() &&
          std::fwrite(output.data(), 1U, output.size(), stdout) != output.size()) ||
         std::fflush(stdout) != 0) {
