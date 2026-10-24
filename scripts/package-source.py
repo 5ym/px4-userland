@@ -378,8 +378,14 @@ def main() -> int:
                 stage / "repository" / "third_party" / "dtv-userland-core" /
                 "adapters" / "windows_winscard" / "COPYING"
             )
+            windows_stdin_source = (
+                stage / "repository" / "third_party" / "dtv-userland-core" /
+                "adapters" / "host_facade" / "src" / "windows_stdin.cpp"
+            )
             if winscard_copying.is_file():
                 dependency_text += "dependency.dtv-userland-core.windows-winscard-license=GPL-2.0-only\n"
+            if windows_stdin_source.is_file():
+                dependency_text += "dependency.dtv-userland-core.windows-stdin-license=GPL-2.0-only\n"
         dependency_text += (
             "corresponding-source-archive=present\n\n"
             "This archive contains the exact repository source snapshot and verified libusb 1.0.30 source "
@@ -400,6 +406,11 @@ def main() -> int:
                     "The shared Windows WinSCard adapter in that source tree is separately licensed "
                     "under GPL-2.0-only; see adapters/windows_winscard/COPYING.\n"
                 )
+            if windows_stdin_source.is_file():
+                dependency_text += (
+                    "The shared Windows stdin EOF monitor in that source tree is separately licensed "
+                    "under GPL-2.0-only; its source and provenance are in adapters/host_facade.\n"
+                )
         notice = notice.replace("@DEPENDENCY_TEXT@", dependency_text)
         write_file(stage / "DEPENDENCY-NOTICE.txt", notice.encode())
         manifest = {
@@ -418,6 +429,8 @@ def main() -> int:
             manifest["dtv_userland_core_license"] = "MIT"
             if winscard_copying.is_file():
                 manifest["dtv_userland_core_windows_winscard_license"] = "GPL-2.0-only"
+            if windows_stdin_source.is_file():
+                manifest["dtv_userland_core_windows_stdin_license"] = "GPL-2.0-only"
         for path in sorted(stage.rglob("*")):
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = {"size": path.stat().st_size, "sha256": sha256(path)}

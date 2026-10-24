@@ -235,6 +235,9 @@ def main() -> int:
             members = set(stream.getnames())
             manifest = json.load(stream.extractfile("source-manifest.json"))
             notice = stream.extractfile("DEPENDENCY-NOTICE.txt").read().decode("utf-8")
+        if (manifest.get("dtv_userland_core_windows_stdin_license") != "GPL-2.0-only" or
+                "dependency.dtv-userland-core.windows-stdin-license=GPL-2.0-only" not in notice):
+            raise SystemExit("source archive is missing the Windows stdin monitor license")
         if any("adapters/windows_winscard/" in name for name in members):
             raise SystemExit("non-adopting product bundled GPL Windows WinSCard sources")
         if "dtv_userland_core_windows_winscard_license" in manifest or \

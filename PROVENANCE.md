@@ -43,6 +43,14 @@ befriends `dtv::userland::Result` because `Result` is now the shared type. The p
 foundation library carries the MIT license recorded in its own `LICENSE`/`PROVENANCE.json`, which the
 corresponding-source archive bundles under `repository/third_party/dtv-userland-core`.
 
+## Windows stdin EOF monitor
+
+The product daemon and its Windows monitor tests use
+`px4::userland::cli::StdinEofMonitor` from the pinned Core `dtv::host_facade`
+target. The earlier product-local `px4d_windows_stdin` implementation was
+removed after its shared implementation was accepted in Core; the opt-in flag,
+stop callback, and cleanup sequence remain unchanged.
+
 ## Date and audit scope
 
 The audit covered all 84 files under `userland/`: 17 adapted, 11 mixed, one uncertain, and 55 original under the
