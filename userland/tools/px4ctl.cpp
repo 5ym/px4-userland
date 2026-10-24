@@ -241,7 +241,8 @@ int exit_status(Error error, bool card_operation = false) noexcept
     case Error::NOT_FOUND:
     case Error::NOT_READY:
     case Error::UNSUPPORTED: return 3;
-    case Error::BUSY: return 4;
+    case Error::BUSY:
+    case Error::RESOURCE_LIMIT: return 4;
     case Error::TIMEOUT: return 5;
     case Error::VERSION_MISMATCH: return 6;
     case Error::PROTOCOL_ERROR: return card_operation ? 9 : 6;

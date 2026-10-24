@@ -123,6 +123,7 @@ ErrorCode ipc_error(Error error) noexcept
     case Error::CARD_REMOVED: return ErrorCode::CARD_REMOVED;
     case Error::BUFFER_TOO_SMALL: return ErrorCode::BUFFER_TOO_SMALL;
     case Error::SLOW_CONSUMER: return ErrorCode::SLOW_CONSUMER;
+    case Error::RESOURCE_LIMIT: return ErrorCode::BUSY;
     case Error::INTERNAL: return ErrorCode::INTERNAL;
     }
     return ErrorCode::INTERNAL;

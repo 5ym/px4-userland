@@ -84,7 +84,8 @@ int exit_status(Error error) noexcept
     case Error::NOT_READY:
     case Error::NO_CARD:
     case Error::UNSUPPORTED: return 3;
-    case Error::BUSY: return 4;
+    case Error::BUSY:
+    case Error::RESOURCE_LIMIT: return 4;
     case Error::TIMEOUT: return 5;
     case Error::VERSION_MISMATCH:
     case Error::PROTOCOL_ERROR: return 6;
