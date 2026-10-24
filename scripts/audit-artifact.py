@@ -687,6 +687,8 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
         "dependency.winscard.artifact": WINDOWS_WINSCARD_ARTIFACT,
         "dependency.winscard.architecture": "x86_64",
         "dependency.winscard.license": "GPL-2.0-only",
+        "dependency.windows-stdin-eof-monitor.program": "px4d.exe",
+        "dependency.windows-stdin-eof-monitor.license": "GPL-2.0-only",
         "corresponding-source-archive": f"px4-userland-{version}-source.tar.gz",
     }
     for key, value in required_fields.items():
@@ -737,6 +739,13 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
         if record != records[name]:
             fail(f"Windows binary evidence record mismatch: {name}")
     manifest = verify_windows_manifest(archive, members, version)
+    monitor = manifest.get("windows_stdin_eof_monitor")
+    if (not isinstance(monitor, dict) or monitor.get("program") != "px4d.exe" or
+            not isinstance(monitor.get("core_revision"), str) or
+            not re.fullmatch(r"[0-9a-f]{40}", monitor["core_revision"]) or
+            monitor.get("license") != "GPL-2.0-only" or
+            fields.get("dependency.windows-stdin-eof-monitor.core-commit") != monitor["core_revision"]):
+        fail("Windows stdin EOF monitor manifest/notice metadata mismatch")
     verify_windows_checksums(archive, members)
     return {"archive": str(archive), "platform": WINDOWS_PLATFORM,
             "members": sorted(members), "manifest": manifest}
@@ -1629,6 +1638,14 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
         elif manifest.get("dtv_userland_core_windows_winscard_license") is not None or \
                 source_fields.get("dependency.dtv-userland-core.windows-winscard-license") is not None:
             fail("source archive declares an absent Windows WinSCard adapter")
+        windows_stdin_source_path = common_prefix + "adapters/host_facade/src/windows_stdin.cpp"
+        if windows_stdin_source_path in members:
+            if manifest.get("dtv_userland_core_windows_stdin_license") != "GPL-2.0-only" or \
+                    source_fields.get("dependency.dtv-userland-core.windows-stdin-license") != "GPL-2.0-only":
+                fail("source archive does not declare the Windows stdin EOF monitor license")
+        elif manifest.get("dtv_userland_core_windows_stdin_license") is not None or \
+                source_fields.get("dependency.dtv-userland-core.windows-stdin-license") is not None:
+            fail("source archive declares an absent Windows stdin EOF monitor")
     else:
         if common_commit is not None or manifest.get("dtv_userland_core_license") is not None:
             fail("source manifest declares dtv-userland-core without a product lock")

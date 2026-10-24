@@ -35,6 +35,11 @@ that exact commit under `repository/third_party/dtv-userland-core`, including it
 Binary archives that statically link the foundation must carry the exact MIT license text for it. The product itself
 remains GPL-2.0-only; the MIT foundation is not a replacement for the product license.
 
+The Windows `px4d` target also links the Core host-facade stdin EOF monitor.
+That adapter is separately licensed under GPL-2.0-only and its source
+provenance is recorded in the corresponding-source archive under
+`repository/third_party/dtv-userland-core/adapters/host_facade`.
+
 Full license text for the statically linked foundation:
 
 ```

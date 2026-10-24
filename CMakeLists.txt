@@ -473,13 +473,13 @@ if(WIN32)
             userland/tools/px4d_list_format.cpp
             userland/tools/px4ctl_format.cpp
             userland/tools/px4d_signals.cpp
-            userland/tools/px4d_windows_stdin.cpp
             userland/src/windows/windows_sleep.cpp
             userland/src/px4d_args.cpp
         )
         target_link_libraries(px4d PRIVATE
             px4_userland_host_backends
             px4_userland_host_libusb_transport
+            dtv::host_facade
             dtv::host_listener_context
             dtv::json
             shell32
@@ -687,7 +687,6 @@ if(WIN32)
 
         add_executable(px4_windows_stdin_tests
             userland/tests/windows_stdin_monitor_tests.cpp
-            userland/tools/px4d_windows_stdin.cpp
         )
         target_include_directories(px4_windows_stdin_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
@@ -695,6 +694,7 @@ if(WIN32)
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
         )
         target_compile_features(px4_windows_stdin_tests PRIVATE cxx_std_17)
+        target_link_libraries(px4_windows_stdin_tests PRIVATE dtv::host_facade)
         px4_enable_project_warnings(px4_windows_stdin_tests)
         add_test(NAME px4_windows_stdin_tests COMMAND px4_windows_stdin_tests)
     endif()

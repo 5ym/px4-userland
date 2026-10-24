@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import struct
@@ -269,6 +270,12 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
             "corresponding-source archive.\n"
         )
     elif platform == "windows-x86_64":
+        core_revision_path = repo_root / "cmake" / "dtv-userland-core.revision"
+        if not core_revision_path.is_file():
+            fail(f"pinned Core revision is missing: {core_revision_path}")
+        core_revision = core_revision_path.read_text(encoding="ascii").strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", core_revision):
+            fail("pinned Core revision is invalid for Windows stdin EOF monitor packaging")
         dependency_text = (
             "dependency.libusb.version=1.0.30\n"
             "dependency.libusb.linkage=static\n"
@@ -278,11 +285,15 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
             f"dependency.winscard.artifact={WINDOWS_WINSCARD_ARTIFACT}\n"
             "dependency.winscard.architecture=x86_64\n"
             "dependency.winscard.license=GPL-2.0-only\n"
+            "dependency.windows-stdin-eof-monitor.program=px4d.exe\n"
+            "dependency.windows-stdin-eof-monitor.license=GPL-2.0-only\n"
+            f"dependency.windows-stdin-eof-monitor.core-commit={core_revision}\n"
             f"corresponding-source-archive=px4-userland-{version}-source.tar.gz\n\n"
             "px4d statically includes libusb 1.0.30 under LGPL-2.1-or-later. px4-ts, px4ctl, and the "
             "application-local x64 WinSCard.dll do not link libusb. WinSCard.dll is the shared Core adapter, "
             "licensed separately under GPL-2.0-only; its exact source and COPYING are in the corresponding-source "
-            "archive. The binaries dynamically load only Windows "
+            "archive. px4d also links the shared Core stdin EOF monitor under GPL-2.0-only; its exact source and "
+            "provenance are in the corresponding-source archive. The binaries dynamically load only Windows "
             "system libraries, including the real system WinSCard for external readers, the UCRT and the "
             "WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb loads at runtime. The "
             "C++/unwinder/winpthread/MinGW-w64 runtimes are statically linked. The exact narrow llvm-mingw "
@@ -503,6 +514,11 @@ def self_test_windows_archive(repo_root: Path) -> None:
             "architecture": "x86_64", "embedded_libusb": {"version": "1.0.30", "linkage": "static"},
             "libusb_archive_sha256": LIBUSB_SHA256,
             "source_ref": "self-test", "programs": list(PROGRAMS), "production_only": True, "files": {},
+            "windows_stdin_eof_monitor": {
+                "program": "px4d.exe",
+                "core_revision": (repo_root / "cmake" / "dtv-userland-core.revision").read_text().strip(),
+                "license": "GPL-2.0-only",
+            },
             "winscard": {"artifact": WINDOWS_WINSCARD_ARTIFACT, "architecture": "x86_64",
                          "deployment": "application-local", "license": "GPL-2.0-only"},
         }
@@ -896,6 +912,17 @@ def main() -> int:
         }
         if args.platform == WINDOWS_PLATFORM:
             manifest["libusb_archive_sha256"] = LIBUSB_SHA256
+            core_revision_path = args.repo_root / "cmake" / "dtv-userland-core.revision"
+            if not core_revision_path.is_file():
+                fail(f"pinned Core revision is missing: {core_revision_path}")
+            core_revision = core_revision_path.read_text(encoding="ascii").strip()
+            if not re.fullmatch(r"[0-9a-f]{40}", core_revision):
+                fail("pinned Core revision is invalid for Windows stdin EOF monitor packaging")
+            manifest["windows_stdin_eof_monitor"] = {
+                "program": "px4d.exe",
+                "core_revision": core_revision,
+                "license": "GPL-2.0-only",
+            }
             manifest["winscard"] = {"artifact": WINDOWS_WINSCARD_ARTIFACT,
                                    "architecture": "x86_64", "deployment": "application-local",
                                    "license": "GPL-2.0-only"}
