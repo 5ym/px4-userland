@@ -73,6 +73,7 @@ public:
     Mlt5PeLnbPowerCoordinator& operator=(const Mlt5PeLnbPowerCoordinator&) = delete;
 
     Result<void> begin_tune(std::uint8_t receiver, std::uint8_t voltage) noexcept;
+    Result<void> set_independent_power(bool enabled) noexcept;
     Result<void> commit_tune(std::uint8_t receiver) noexcept;
     Result<void> rollback_tune(std::uint8_t receiver) noexcept;
     Result<void> release_receiver(std::uint8_t receiver) noexcept;
@@ -94,6 +95,7 @@ private:
     bool allow_15v_;
     mutable std::mutex mutex_;
     std::array<ReceiverRequest, kMlt5PeReceiverCount> receivers_{};
+    bool independent_15v_ = false;
     Q3U4LnbPhysicalState physical_state_ = Q3U4LnbPhysicalState::off;
     bool cleanup_debt_ = false;
 };

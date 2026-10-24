@@ -115,6 +115,7 @@ std::uint8_t Mlt5PeLnbPowerCoordinator::ref_count_locked() const noexcept
     for (const ReceiverRequest& request : receivers_) {
         if (request.pending ? request.pending_15v : request.committed_15v) ++count;
     }
+    if (independent_15v_) ++count;
     return count;
 }
 
@@ -174,6 +175,24 @@ Result<void> Mlt5PeLnbPowerCoordinator::begin_tune(std::uint8_t receiver,
     return applied;
 }
 
+Result<void> Mlt5PeLnbPowerCoordinator::set_independent_power(bool enabled) noexcept
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (enabled && !allow_15v_) return Result<void>::failure(Error::UNSUPPORTED);
+    if (enabled && physical_state_ == Q3U4LnbPhysicalState::disconnected)
+        return Result<void>::failure(Error::DISCONNECTED);
+    const bool previous = independent_15v_;
+    independent_15v_ = enabled;
+    const auto applied = apply_locked();
+    if (applied || !enabled) return applied;
+
+    independent_15v_ = previous;
+    const auto restored = apply_locked();
+    if (!restored && restored.error() == Error::DISCONNECTED)
+        return Result<void>::failure(Error::DISCONNECTED);
+    return applied;
+}
+
 Result<void> Mlt5PeLnbPowerCoordinator::commit_tune(std::uint8_t receiver) noexcept
 {
     if (receiver >= kMlt5PeReceiverCount) return Result<void>::failure(Error::INVALID_ARGUMENT);
@@ -206,6 +225,7 @@ Result<void> Mlt5PeLnbPowerCoordinator::release_receiver(std::uint8_t receiver) 
 Result<void> Mlt5PeLnbPowerCoordinator::shutdown() noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    independent_15v_ = false;
     receivers_.fill(ReceiverRequest{});
     return apply_locked();
 }
@@ -215,6 +235,7 @@ void Mlt5PeLnbPowerCoordinator::disconnect() noexcept
     std::lock_guard<std::mutex> lock(mutex_);
     physical_state_ = Q3U4LnbPhysicalState::disconnected;
     cleanup_debt_ = false;
+    independent_15v_ = false;
     receivers_.fill(ReceiverRequest{});
 }
 

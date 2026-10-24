@@ -50,6 +50,7 @@ std::uint8_t Q3U4LnbPowerCoordinator::ref_count_locked(
             : request.committed && request.committed_15v;
         if (enabled) ++count;
     }
+    if (independent_15v_) ++count;
     return count;
 }
 
@@ -133,6 +134,26 @@ Result<void> Q3U4LnbPowerCoordinator::begin_tune(
     return applied;
 }
 
+Result<void> Q3U4LnbPowerCoordinator::set_independent_power(bool enabled) noexcept
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (enabled && !allow_15v_) return Result<void>::failure(Error::UNSUPPORTED);
+    if (enabled && (physical_state_[0U] == Q3U4LnbPhysicalState::disconnected ||
+        physical_state_[1U] == Q3U4LnbPhysicalState::disconnected)) {
+        return Result<void>::failure(Error::DISCONNECTED);
+    }
+    const bool previous = independent_15v_;
+    independent_15v_ = enabled;
+    const auto applied = apply_both_locked();
+    if (applied || !enabled) return applied;
+
+    independent_15v_ = previous;
+    const auto restored = apply_both_locked();
+    if (!restored && restored.error() == Error::DISCONNECTED)
+        return Result<void>::failure(Error::DISCONNECTED);
+    return applied;
+}
+
 Result<void> Q3U4LnbPowerCoordinator::commit_tune(
     std::uint8_t global_receiver) noexcept
 {
@@ -178,6 +199,7 @@ Result<void> Q3U4LnbPowerCoordinator::reconcile() noexcept
 Result<void> Q3U4LnbPowerCoordinator::shutdown() noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    independent_15v_ = false;
     receivers_.fill(ReceiverRequest{});
     // Both bridges are always attempted. In particular a terminally lost
     // bridge must not prevent GPIO 11 low on its still-connected sibling.
@@ -192,6 +214,7 @@ Result<void> Q3U4LnbPowerCoordinator::disconnect(Q3U4Bridge bridge) noexcept
     const std::size_t index = bridge_index(bridge);
     physical_state_[index] = Q3U4LnbPhysicalState::disconnected;
     cleanup_debt_[index] = false;
+    independent_15v_ = false;
     const std::size_t first = index == 0U ? 0U : 4U;
     receivers_[first] = ReceiverRequest{};
     receivers_[first + 1U] = ReceiverRequest{};

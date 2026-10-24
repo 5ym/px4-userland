@@ -564,6 +564,7 @@ bool test_lnb_power()
     RecordingLnb lnb;
     Mlt5PeLnbPowerCoordinator locked(lnb, false);
     MLT_CHECK(locked.begin_tune(0U, 15U).error() == Error::UNSUPPORTED);
+    MLT_CHECK(locked.set_independent_power(true).error() == Error::UNSUPPORTED);
     MLT_CHECK(lnb.calls.empty());
     MLT_CHECK(locked.begin_tune(0U, 0U) && locked.commit_tune(0U));
     MLT_CHECK(lnb.calls.empty());
@@ -574,6 +575,11 @@ bool test_lnb_power()
     MLT_CHECK(coordinator.begin_tune(0U, 15U) && coordinator.commit_tune(0U));
     MLT_CHECK(coordinator.begin_tune(4U, 15U) && coordinator.commit_tune(4U));
     MLT_CHECK((lnb.calls == std::vector<bool>{true}));
+    MLT_CHECK(coordinator.snapshot().ref_count == 2U);
+
+    MLT_CHECK(coordinator.set_independent_power(true));
+    MLT_CHECK(coordinator.snapshot().ref_count == 3U);
+    MLT_CHECK(coordinator.set_independent_power(false));
     MLT_CHECK(coordinator.snapshot().ref_count == 2U);
 
     // Retuning receiver 0 to ISDB-T drops its reference; the other keeps 15 V.

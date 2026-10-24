@@ -147,6 +147,29 @@ Result<void> Q3U4FrontendTunerBackend::rollback_tune_power(
                                   : Result<void>::success();
 }
 
+#if defined(PX4_USERLAND_CORE_DAEMON_API)
+Result<void> Q3U4FrontendTunerBackend::set_independent_lnb_power(
+    bool enabled) noexcept
+{
+    return lnb_power_.set_independent_power(enabled);
+}
+
+dtv::userland::wire::Optional<bool>
+Q3U4FrontendTunerBackend::independent_lnb_power_state() noexcept
+{
+    const Q3U4LnbPowerSnapshot state = lnb_power_.snapshot();
+    if (state.physical_state[0U] == Q3U4LnbPhysicalState::on &&
+        state.physical_state[1U] == Q3U4LnbPhysicalState::on) {
+        return {true, true};
+    }
+    if (state.physical_state[0U] == Q3U4LnbPhysicalState::off &&
+        state.physical_state[1U] == Q3U4LnbPhysicalState::off) {
+        return {true, false};
+    }
+    return {};
+}
+#endif
+
 void Q3U4FrontendTunerBackend::mark_receiver_disconnected(
     std::uint8_t receiver) noexcept
 {

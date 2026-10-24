@@ -466,11 +466,12 @@ if(WIN32)
             userland/tools/px4d.cpp
             userland/tools/px4d_list_format.cpp
             userland/tools/px4ctl_format.cpp
+            userland/tools/px4d_signals.cpp
             userland/tools/px4d_windows_stdin.cpp
+            userland/src/windows/windows_sleep.cpp
             userland/src/px4d_args.cpp
         )
         target_link_libraries(px4d PRIVATE
-            px4_userland_windows_platform
             px4_userland_host_backends
             px4_userland_host_libusb_transport
             dtv::host_listener_context
