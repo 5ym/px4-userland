@@ -194,7 +194,7 @@ sed \
 # pcscd.service が User=pcscd の場合、共有 group（pcscd）に合わせて
 # IPC の group mode を明示します（実効 primary group または補助グループのいずれでも可）。
 sudo -g pcscd /opt/px4-userland/px4d \
-  --device '<base-serial>' --firmware /path/to/firmware.bin \
+  --device 'serial:<base-serial>' --firmware /path/to/firmware.bin \
   --runtime-dir /run/px4-userland --group
 ```
 
@@ -220,14 +220,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 /opt/px4-userland/px4d \
-  --device '<base-serial>' \
+  --device 'serial:<base-serial>' \
   --firmware /path/to/firmware.bin \
   --runtime-dir "$runtime_dir" >/dev/null 2>&1 &
 px4d_pid=$!
 ready=0
 i=0
 while test "$i" -lt 30; do
-  if /opt/px4-userland/px4ctl --device '<base-serial>' \
+  if /opt/px4-userland/px4ctl --device 'serial:<base-serial>' \
       --runtime-dir "$runtime_dir" status >/dev/null 2>&1; then
     ready=1
     break
@@ -238,7 +238,7 @@ while test "$i" -lt 30; do
 done
 test "$ready" = 1 || { echo 'px4d did not become ready' >&2; exit 1; }
 /opt/px4-userland/px4-ts \
-  --device '<base-serial>' --receiver 2 --system isdb-t \
+  --device 'serial:<base-serial>' --receiver 2 --system isdb-t \
   --frequency-khz 557142 --runtime-dir "$runtime_dir" \
   --output - --duration-seconds 30 > stream.ts
 ```
