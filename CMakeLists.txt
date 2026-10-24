@@ -275,6 +275,10 @@ if(PX4_ENABLE_LIBUSB)
     add_library(px4_userland_host_libusb_transport STATIC
         userland/src/libusb_transport.cpp
     )
+    if(WIN32 OR PX4_BUILD_TESTS)
+        target_sources(px4_userland_host_libusb_transport PRIVATE
+            userland/src/windows/libusb_stream_policy.cpp)
+    endif()
     target_include_directories(px4_userland_host_libusb_transport
         PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
