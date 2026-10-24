@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "px4/pcsc_ifd_adapter.h"
 
-#include "px4/control_client.h"
-#include "px4/ipc.h"
-#include "px4/posix_ipc.h"
+#include "dtv/userland/control_client.h"
+#include "dtv/userland/host_runtime/control_socket.h"
 
 #include <algorithm>
 #include <array>
@@ -13,9 +12,6 @@
 
 namespace px4::userland::pcsc {
 namespace {
-
-using namespace ipc;
-using namespace ipc::posix;
 
 constexpr std::uint32_t kRequestTimeoutMs = 4000U;
 constexpr std::string_view kDevicePrefix = "px4-userland:";
@@ -115,121 +111,164 @@ IfdResult copy_u32(std::uint32_t value, MutableByteView output,
     return copy_value(ByteView{bytes.data(), bytes.size()}, output, length);
 }
 
-template <typename Payload>
-Result<ControlResponse> typed_request(PosixControlClient& client,
-                                      MessageType type,
-                                      const Payload& payload) noexcept
-{
-    std::array<std::uint8_t, kMaxControlPayload> encoded{};
-    const auto size = encode_payload(
-        payload, MutableByteView{encoded.data(), encoded.size()});
-    if (!size) return Result<ControlResponse>::failure(size.error());
-    return client.request(type, ByteView{encoded.data(), size.value()},
-                          Timeout{kRequestTimeoutMs});
-}
-
 class PosixIfdCardClient final : public IfdCardClient {
 public:
-    explicit PosixIfdCardClient(std::unique_ptr<PosixControlClient> client) noexcept
-        : client_(std::move(client))
+    PosixIfdCardClient(std::unique_ptr<dtv::userland::wire::TimedClientTransport> client,
+                       std::string instance, std::string runtime_directory,
+                       dtv::userland::host_runtime::EndpointAccess access) noexcept
+        : client_(std::move(client)), instance_(std::move(instance)),
+          runtime_directory_(std::move(runtime_directory)), access_(access)
     {
     }
 
     Result<IfdCardStatus> status() noexcept override
     {
-        const auto response = client_->request(
-            MessageType::CARD_STATUS, ByteView{nullptr, 0U},
-            Timeout{kRequestTimeoutMs});
-        if (!response) return Result<IfdCardStatus>::failure(response.error());
-        const auto decoded = decode_card_status_response_payload(
-            ByteView{response.value().payload.data(), response.value().payload.size()});
-        if (!decoded) return Result<IfdCardStatus>::failure(decoded.error());
         IfdCardStatus result{};
-        result.present = decoded.value().present != 0U;
-        result.initialized = decoded.value().initialized != 0U;
-        result.reader_generation = decoded.value().reader_generation;
-        result.atr_length = decoded.value().atr.size;
-        if (result.atr_length != 0U) {
-            std::memcpy(result.atr.data(), decoded.value().atr.data,
-                        result.atr_length);
+        if (!card_session_started_) {
+            const auto snapshot = dtv::userland::wire::fetch_status(
+                *client_, dtv::userland::Timeout{kRequestTimeoutMs},
+                dtv::userland::wire::kFeatureCardService);
+            if (!snapshot) return Result<IfdCardStatus>::failure(
+                static_cast<Error>(snapshot.error));
+            const auto& readers = snapshot.snapshot.status.readers;
+            if (!readers.present || readers.value.count == 0U)
+                return Result<IfdCardStatus>::failure(Error::NOT_FOUND);
+            const auto reader = std::find_if(
+                readers.value.items.begin(),
+                readers.value.items.begin() + readers.value.count,
+                [](const auto& item) { return item.descriptor.id == 0U; });
+            if (reader == readers.value.items.begin() + readers.value.count) {
+                return Result<IfdCardStatus>::failure(Error::NOT_FOUND);
+            }
+            session_ = dtv::userland::wire::CardClientSession{};
+            session_.epoch = snapshot.snapshot.status.context.epoch;
+            session_.reader_id = reader->descriptor.id;
+            session_.next_request_id = 4U;
+            const auto status = dtv::userland::wire::card_status(
+                *client_, session_, dtv::userland::Timeout{kRequestTimeoutMs});
+            if (!status)
+                return Result<IfdCardStatus>::failure(static_cast<Error>(status.error));
+            card_session_started_ = true;
+            result.present = status.response.present;
+            result.initialized = status.response.initialized;
+            result.reader_generation = status.response.current_generation;
+            if (result.present && result.initialized && status.response.atr.present) {
+                result.atr_length = status.response.atr.value.length;
+                if (result.atr_length > result.atr.size())
+                    return Result<IfdCardStatus>::failure(Error::BUFFER_TOO_SMALL);
+                if (result.atr_length != 0U)
+                    std::memcpy(result.atr.data(), status.response.atr.value.bytes.data(),
+                                result.atr_length);
+            }
+            return Result<IfdCardStatus>::success(result);
+        }
+        const auto status = dtv::userland::wire::card_status(
+            *client_, session_, dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!status) return Result<IfdCardStatus>::failure(
+            static_cast<Error>(status.error));
+        const auto& reader = status.response;
+        result.present = reader.present;
+        result.initialized = reader.initialized;
+        result.reader_generation = reader.current_generation;
+        if (result.present && result.initialized && reader.atr.present) {
+            result.atr_length = reader.atr.value.length;
+            if (result.atr_length > result.atr.size())
+                return Result<IfdCardStatus>::failure(Error::BUFFER_TOO_SMALL);
+            if (result.atr_length != 0U)
+                std::memcpy(result.atr.data(), reader.atr.value.bytes.data(),
+                            result.atr_length);
         }
         return Result<IfdCardStatus>::success(result);
     }
 
     Result<IfdCardConnectResult> connect_shared() noexcept override
     {
-        const auto response = typed_request(
-            *client_, MessageType::CARD_CONNECT,
-            CardConnectRequestPayload{ShareMode::shared});
-        if (!response) {
-            return Result<IfdCardConnectResult>::failure(response.error());
-        }
-        const auto decoded = decode_card_connect_response_payload(
-            ByteView{response.value().payload.data(), response.value().payload.size()});
-        if (!decoded) {
-            return Result<IfdCardConnectResult>::failure(decoded.error());
-        }
+        using namespace dtv::userland::host_runtime;
+        const EndpointConfig config{runtime_directory_, "px4-userland", instance_, access_};
+        auto reconnected = connect_control(config, dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!reconnected) return Result<IfdCardConnectResult>::failure(
+            static_cast<Error>(reconnected.error()));
+        if (client_) client_->close();
+        client_ = std::move(reconnected.value());
+        dtv::userland::wire::CardClientOptions options;
+        options.reader_id = 0U;
+        options.share = dtv::userland::wire::Share::shared;
+        options.expected_product = {reinterpret_cast<const std::uint8_t*>(kProduct.data()),
+                                    kProduct.size()};
+        options.expected_instance = {
+            reinterpret_cast<const std::uint8_t*>(instance_.data()), instance_.size()};
+        const auto opened = dtv::userland::wire::begin_card(
+            *client_, options, dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!opened) return Result<IfdCardConnectResult>::failure(
+            static_cast<Error>(opened.error));
+        session_ = opened.session;
+        const auto& atr = opened.connection.atr;
+        atr_length_ = atr.present ? atr.value.length : 0U;
+        if (atr_length_ > atr_.size())
+            return Result<IfdCardConnectResult>::failure(Error::BUFFER_TOO_SMALL);
+        if (atr_length_ != 0U)
+            std::memcpy(atr_.data(), atr.value.bytes.data(), atr_length_);
+        card_session_started_ = true;
         IfdCardConnectResult result{};
-        result.handle = decoded.value().card_handle;
-        result.atr_length = decoded.value().atr.size;
-        if (result.atr_length != 0U) {
-            std::memcpy(result.atr.data(), decoded.value().atr.data,
-                        result.atr_length);
-        }
+        result.handle = session_.card_handle;
+        result.atr_length = atr_length_;
+        std::copy_n(atr_.begin(), atr_length_, result.atr.begin());
         return Result<IfdCardConnectResult>::success(result);
     }
 
     Result<void> disconnect(std::uint64_t handle) noexcept override
     {
-        const auto response = typed_request(
-            *client_, MessageType::CARD_DISCONNECT,
-            CardDispositionRequestPayload{handle, Disposition::leave});
-        return response ? Result<void>::success() :
-                          Result<void>::failure(response.error());
+        if (handle == 0U || handle != session_.card_handle)
+            return Result<void>::failure(Error::NOT_FOUND);
+        const auto disconnected = dtv::userland::wire::card_disconnect(
+            *client_, session_, dtv::userland::wire::Disposition::leave,
+            dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!disconnected) return Result<void>::failure(
+            static_cast<Error>(disconnected.error));
+        session_.card_handle = 0U;
+        session_.bound_generation = 0U;
+        atr_length_ = 0U;
+        atr_.fill(0U);
+        return Result<void>::success();
     }
 
     Result<IfdCardConnectResult> reset(std::uint64_t handle) noexcept override
     {
-        const auto response = typed_request(
-            *client_, MessageType::CARD_RESET,
-            CardHandleRequestPayload{handle});
-        if (!response) {
-            return Result<IfdCardConnectResult>::failure(response.error());
-        }
-        const auto decoded = decode_atr_payload(
-            ByteView{response.value().payload.data(), response.value().payload.size()});
-        if (!decoded) {
-            return Result<IfdCardConnectResult>::failure(decoded.error());
-        }
+        if (handle == 0U || handle != session_.card_handle)
+            return Result<IfdCardConnectResult>::failure(Error::NOT_FOUND);
+        const auto reset = dtv::userland::wire::card_reset(
+            *client_, session_, dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!reset) return Result<IfdCardConnectResult>::failure(
+            static_cast<Error>(reset.error));
+        const auto& atr = reset.response.atr;
+        atr_length_ = atr.present ? atr.value.length : 0U;
+        if (atr_length_ > atr_.size())
+            return Result<IfdCardConnectResult>::failure(Error::BUFFER_TOO_SMALL);
+        if (atr_length_ != 0U)
+            std::memcpy(atr_.data(), atr.value.bytes.data(), atr_length_);
         IfdCardConnectResult result{};
         result.handle = handle;
-        result.atr_length = decoded.value().atr.size;
-        if (result.atr_length != 0U) {
-            std::memcpy(result.atr.data(), decoded.value().atr.data,
-                        result.atr_length);
-        }
+        result.atr_length = atr_length_;
+        std::copy_n(atr_.begin(), atr_length_, result.atr.begin());
         return Result<IfdCardConnectResult>::success(result);
     }
 
     Result<std::size_t> transmit(std::uint64_t handle, ByteView apdu,
                                  MutableByteView response) noexcept override
     {
-        const auto reply = typed_request(
-            *client_, MessageType::CARD_TRANSMIT,
-            CardTransmitRequestPayload{handle, apdu});
-        if (!reply) return Result<std::size_t>::failure(reply.error());
-        const auto decoded = decode_card_transmit_response_payload(
-            ByteView{reply.value().payload.data(), reply.value().payload.size()});
-        if (!decoded) return Result<std::size_t>::failure(decoded.error());
-        if (decoded.value().response.size > response.size ||
-            (decoded.value().response.size != 0U && response.data == nullptr)) {
+        if (handle == 0U || handle != session_.card_handle)
+            return Result<std::size_t>::failure(Error::NOT_FOUND);
+        const auto transmitted = dtv::userland::wire::card_transmit(
+            *client_, session_, dtv::userland::wire::CardProtocol::t1,
+            {apdu.data, apdu.size}, dtv::userland::Timeout{kRequestTimeoutMs});
+        if (!transmitted) return Result<std::size_t>::failure(
+            static_cast<Error>(transmitted.error));
+        const auto& bytes = transmitted.response.response;
+        if (bytes.length > response.size || (bytes.length != 0U && response.data == nullptr)) {
             return Result<std::size_t>::failure(Error::BUFFER_TOO_SMALL);
         }
-        if (decoded.value().response.size != 0U) {
-            std::memcpy(response.data, decoded.value().response.data,
-                        decoded.value().response.size);
-        }
-        return Result<std::size_t>::success(decoded.value().response.size);
+        if (bytes.length != 0U) std::memcpy(response.data, bytes.bytes.data(), bytes.length);
+        return Result<std::size_t>::success(bytes.length);
     }
 
     void close() noexcept override
@@ -238,7 +277,16 @@ public:
     }
 
 private:
-    std::unique_ptr<PosixControlClient> client_;
+    static constexpr std::string_view kProduct = "px4-userland";
+    std::unique_ptr<dtv::userland::wire::TimedClientTransport> client_;
+    dtv::userland::wire::CardClientSession session_{};
+    std::array<std::uint8_t, kIfdAtrMaxLength> atr_{};
+    std::size_t atr_length_ = 0U;
+    bool card_session_started_ = false;
+    std::string instance_;
+    std::string runtime_directory_;
+    dtv::userland::host_runtime::EndpointAccess access_ =
+        dtv::userland::host_runtime::EndpointAccess::private_user;
 };
 
 }  // namespace
@@ -353,20 +401,20 @@ IfdResult map_ifd_error(Error error, IfdOperation operation) noexcept
 Result<std::unique_ptr<IfdCardClient>> PosixIfdCardClientFactory::connect(
     const IfdEndpoint& endpoint) noexcept
 {
-    const char* runtime = endpoint.runtime_directory.empty() ?
-                              nullptr : endpoint.runtime_directory.c_str();
-    const EndpointConfig config{
-        runtime, endpoint.device_instance.c_str(), kControlEndpointName,
-        endpoint.group_access ? EndpointAccess::shared_group :
-                                EndpointAccess::private_user};
-    auto client = PosixControlClient::connect(
-        config, kCapabilityCard, Timeout{kRequestTimeoutMs});
+    using namespace dtv::userland::host_runtime;
+    const EndpointAccess access = endpoint.group_access ? EndpointAccess::shared_group :
+                                                           EndpointAccess::private_user;
+    const EndpointConfig config{endpoint.runtime_directory, "px4-userland",
+                                endpoint.device_instance, access};
+    auto client = connect_control(config, dtv::userland::Timeout{kRequestTimeoutMs});
     if (!client) {
-        return Result<std::unique_ptr<IfdCardClient>>::failure(client.error());
+        return Result<std::unique_ptr<IfdCardClient>>::failure(
+            static_cast<Error>(client.error()));
     }
     return Result<std::unique_ptr<IfdCardClient>>::success(
         std::unique_ptr<IfdCardClient>(
-            new PosixIfdCardClient(std::move(client.value()))));
+            new PosixIfdCardClient(std::move(client.value()), endpoint.device_instance,
+                                   endpoint.runtime_directory, access)));
 }
 
 void IfdAdapter::clear_card_state() noexcept
@@ -450,6 +498,10 @@ Result<IfdCardConnectResult> IfdAdapter::power_or_reset(bool force_reset) noexce
         Result<IfdCardConnectResult>::failure(Error::INTERNAL);
     if (card_handle_ == 0U) {
         result = client_->connect_shared();
+        if (!result) {
+            invalidate_client();
+            return result;
+        }
     } else if (force_reset || !powered_) {
         result = client_->reset(card_handle_);
     } else {

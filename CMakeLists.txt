@@ -702,10 +702,23 @@ if(PX4_BUILD_PCSC_IFD AND UNIX AND NOT ANDROID)
             userland/src/pcsc_ifd_adapter.cpp
         )
         target_include_directories(px4_userland_pcsc_ifd_core
-            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+            PUBLIC
+                ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+                ${dtv_userland_core_SOURCE_DIR}/include
+            PRIVATE
+                ${dtv_userland_core_SOURCE_DIR}/adapters/host_runtime/include
         )
         target_compile_features(px4_userland_pcsc_ifd_core PUBLIC cxx_std_17)
-        target_link_libraries(px4_userland_pcsc_ifd_core PUBLIC px4_userland_posix_ipc)
+        foreach(px4_ifd_core_dependency IN ITEMS
+            dtv_userland_control dtv_userland_wire dtv_userland_host_runtime
+            dtv_userland_core)
+            if(TARGET ${px4_ifd_core_dependency})
+                set_target_properties(${px4_ifd_core_dependency} PROPERTIES
+                    POSITION_INDEPENDENT_CODE ON)
+            endif()
+        endforeach()
+        target_link_libraries(px4_userland_pcsc_ifd_core PRIVATE
+            dtv::control dtv::host_runtime)
         set_target_properties(px4_userland_pcsc_ifd_core PROPERTIES
             POSITION_INDEPENDENT_CODE ON
         )
@@ -889,8 +902,8 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
         target_link_libraries(px4_ifd_tests PRIVATE
             px4_ifdhandler
             px4_userland_pcsc_ifd_core
-            px4_userland_posix_ipc
         )
+        target_compile_definitions(px4_ifd_tests PRIVATE PX4_CORE_IFD=1)
         if(TARGET px4_userland_posix_workers)
             target_link_libraries(px4_ifd_tests PRIVATE px4_userland_posix_workers)
         endif()
@@ -904,6 +917,24 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
                 -DBUNDLE=${PX4_IFD_BUNDLE_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-ifd-symbols.cmake
         )
+
+        add_executable(px4_ifd_core_tests userland/tests/pcsc_ifd_core_tests.cpp)
+        target_include_directories(px4_ifd_core_tests BEFORE PRIVATE
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_runtime/include
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_listener_context/include
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_facade/include
+            ${dtv_userland_core_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+        )
+        target_compile_features(px4_ifd_core_tests PRIVATE cxx_std_17)
+        target_link_libraries(px4_ifd_core_tests PRIVATE
+            px4_userland_pcsc_ifd_core
+            dtv::host_listener_context
+        )
+        px4_enable_project_warnings(px4_ifd_core_tests)
+        add_test(NAME px4_ifd_core_tests COMMAND px4_ifd_core_tests)
+        set_tests_properties(px4_ifd_core_tests PROPERTIES TIMEOUT 20)
     endif()
 
     add_test(NAME px4_userland_tests COMMAND px4_userland_tests)
