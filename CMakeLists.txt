@@ -704,9 +704,9 @@ if(PX4_BUILD_PCSC_IFD AND UNIX AND NOT ANDROID)
         target_include_directories(px4_userland_pcsc_ifd_core
             PUBLIC
                 ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+                ${dtv_userland_core_SOURCE_DIR}/include
             PRIVATE
                 ${dtv_userland_core_SOURCE_DIR}/adapters/host_runtime/include
-                ${dtv_userland_core_SOURCE_DIR}/include
         )
         target_compile_features(px4_userland_pcsc_ifd_core PUBLIC cxx_std_17)
         foreach(px4_ifd_core_dependency IN ITEMS
