@@ -47,7 +47,7 @@ class CardSession final : public CardProtocolSession {
 public:
     Result<void> initialize() noexcept override
     {
-        initialized_ = true;
+        initialized_.store(true, std::memory_order_release);
         atr_.bytes[0U] = 0x3bU;
         atr_.bytes[1U] = 0x00U;
         atr_.length = 2U;
@@ -61,16 +61,17 @@ public:
         response.data[1U] = 0x00U;
         return Result<std::size_t>::success(2U);
     }
-    bool initialized() const noexcept override { return initialized_; }
+    bool initialized() const noexcept override
+    { return initialized_.load(std::memory_order_acquire); }
     const CardAtrBytes& atr() const noexcept override { return atr_; }
     void invalidate() noexcept override
     {
-        initialized_ = false;
+        initialized_.store(false, std::memory_order_release);
         atr_ = CardAtrBytes{};
     }
 private:
     CardAtrBytes atr_{};
-    bool initialized_ = false;
+    std::atomic<bool> initialized_{false};
 };
 
 class TunerBackend final : public TunerServiceBackend {
@@ -169,7 +170,7 @@ w::ListResponse make_list()
 
 bool test_ifd_against_core_context()
 {
-    const auto root = std::filesystem::temp_directory_path() /
+    const auto root = std::filesystem::path("/tmp") /
         ("px4-ifd-core-" + std::to_string(static_cast<unsigned long>(::getpid())));
     const std::string runtime_directory = root.string();
     std::error_code error;
