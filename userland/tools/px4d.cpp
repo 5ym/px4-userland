@@ -394,6 +394,7 @@ int serve_core(const Px4dArguments& arguments, const std::string& base_serial,
         runtime,
         epoch, producer);
     config.context.epoch = epoch;
+    config.context.state = wire::ContextState::ready;
     config.context.instance.present = true;
     (void)set_wire_text(config.context.instance.value, config.instance);
     for (std::size_t index = 0U; index < 8U; ++index)
