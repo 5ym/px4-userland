@@ -38,6 +38,7 @@ struct Px4dArguments final {
     std::string runtime_directory;
     std::array<int, 2U> file_descriptors{{-1, -1}};
     std::size_t file_descriptor_count = 0U;
+    bool usb_selector = false;
     std::array<std::string, 2U> usb_paths{};
     std::size_t usb_path_count = 0U;
     std::string_view error;

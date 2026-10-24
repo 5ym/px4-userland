@@ -467,19 +467,32 @@ Result<SelectedQ3U4Group> select_q3u4_group_by_usb_paths(
                 }
             }
         }
-        if (matches != 1U) return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
+        if (matches == 0U) return Result<SelectedQ3U4Group>::failure(Error::NOT_FOUND);
+        if (matches != 1U)
+            return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
     }
     if (usb_paths.size() == 2U &&
         groups[0U] != groups[1U])
         return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
     const Q3U4Group& group = grouping.groups[groups[0U]];
     const DeviceProfile& profile = device_profile(group.model);
-    if (profile.bridge_count != usb_paths.size() ||
-        (!base_serial.empty() && group.base_serial != base_serial))
+    if (!base_serial.empty() && group.base_serial != base_serial)
         return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
 
     SelectedQ3U4Group selected;
     selected.group_index = groups[0U];
+    if (usb_paths.size() == 1U) {
+        if (group.status != GroupStatus::ready)
+            return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
+        for (std::size_t slot = 0U; slot < profile.bridge_count; ++slot) {
+            if (!group.candidate_indices[slot])
+                return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
+            selected.candidate_indices[slot] = *group.candidate_indices[slot];
+        }
+        return Result<SelectedQ3U4Group>::success(selected);
+    }
+    if (profile.bridge_count != usb_paths.size())
+        return Result<SelectedQ3U4Group>::failure(Error::INVALID_ARGUMENT);
     std::array<bool, 2U> occupied{{false, false}};
     for (std::size_t index = 0U; index < usb_paths.size(); ++index) {
         const Q3U4Group::Candidate& candidate = group.candidates[candidate_positions[index]];

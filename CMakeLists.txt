@@ -481,6 +481,7 @@ if(WIN32)
             px4_userland_host_libusb_transport
             dtv::host_facade
             dtv::host_listener_context
+            dtv::identity
             dtv::json
             shell32
         )
@@ -525,7 +526,7 @@ if(WIN32)
             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
         )
         target_compile_features(px4_userland_windows_test_support PUBLIC cxx_std_17)
-        target_link_libraries(px4_userland_windows_test_support PUBLIC dtv::core)
+        target_link_libraries(px4_userland_windows_test_support PUBLIC dtv::core dtv::identity)
         px4_enable_project_warnings(px4_userland_windows_test_support)
 
         # Reuse the original test_main aggregator and the unchanged portable
@@ -836,7 +837,7 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
     )
     target_compile_features(px4_userland_test_support PUBLIC cxx_std_17)
-    target_link_libraries(px4_userland_test_support PUBLIC dtv::core)
+    target_link_libraries(px4_userland_test_support PUBLIC dtv::core dtv::identity)
     px4_enable_project_warnings(px4_userland_test_support)
 
     add_executable(px4_userland_tests
