@@ -313,10 +313,14 @@ if(PX4_ENABLE_LIBUSB)
     target_include_directories(px4_userland_host_backends PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+        ${dtv_userland_core_SOURCE_DIR}/adapters/host_facade/include
+        ${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include
+        ${dtv_userland_core_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
     )
     target_compile_features(px4_userland_host_backends PRIVATE cxx_std_17)
     target_compile_options(px4_userland_host_backends PRIVATE
-        "$<$<CXX_COMPILER_ID:GNU,Clang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+        "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
         "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
     )
     target_compile_definitions(px4_userland_host_backends PRIVATE
@@ -1001,9 +1005,12 @@ if(TARGET px4_userland_posix_ipc)
         target_include_directories(px4d PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_facade/include
+            ${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include
+            ${dtv_userland_core_SOURCE_DIR}/include
         )
         target_compile_options(px4d PRIVATE
-            "$<$<CXX_COMPILER_ID:GNU,Clang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+            "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
             "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
         )
         target_compile_definitions(px4d PRIVATE
