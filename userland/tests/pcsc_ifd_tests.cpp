@@ -681,6 +681,7 @@ private:
     std::thread thread_;
 };
 
+#if !defined(PX4_CORE_IFD)
 bool test_exported_abi_over_real_ipc()
 {
     TempRuntime runtime;
@@ -797,6 +798,7 @@ bool test_exported_abi_over_real_ipc()
     CHECK(IFDHCloseChannel(0U) == IFD_SUCCESS);
     return true;
 }
+#endif
 
 }  // namespace
 
@@ -806,8 +808,11 @@ int main()
         !test_device_name_and_error_mapping() ||
         !test_adapter_state_and_recovery() ||
         !test_adapter_lazy_reconnect() ||
-        !test_adapter_timeout_and_buffer_errors() ||
-        !test_exported_abi_over_real_ipc()) {
+        !test_adapter_timeout_and_buffer_errors()
+#if !defined(PX4_CORE_IFD)
+        || !test_exported_abi_over_real_ipc()
+#endif
+        ) {
         return 1;
     }
     std::printf("PASS pcsc_ifd\n");
