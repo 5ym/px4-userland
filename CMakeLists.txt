@@ -368,17 +368,18 @@ if(WIN32)
 
     add_executable(px4-ts
         userland/tools/px4_ts_windows.cpp
-        userland/tools/px4_ts_windows_output.cpp
-        userland/tools/px4_ts_core.cpp
     )
-    target_link_libraries(px4-ts PRIVATE px4_userland_windows_ipc shell32)
+    target_link_libraries(px4-ts PRIVATE
+        dtv::host_ts px4_userland_core shell32)
     target_include_directories(px4-ts PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
     )
     target_compile_features(px4-ts PRIVATE cxx_std_17)
+    target_compile_definitions(px4-ts PRIVATE
+        PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}")
     px4_enable_project_warnings(px4-ts)
-    # Px4TsRunner::run() frames a full TS frame buffer
+    # Px4TsRunner::run_wire() frames a full TS frame buffer
     # (kFrameHeaderSize + kMaxTsDataPayload = 1,048,616 bytes) plus an 8 KiB
     # read buffer as entry locals.  That exceeds the default 1 MiB PE stack
     # reserve, so px4-ts.exe faults at function entry (0xC00000FD,
@@ -518,12 +519,9 @@ if(WIN32)
 
         add_executable(px4_windows_ts_output_tests
             userland/tests/windows_ts_output_tests.cpp
-            userland/tools/px4_ts_windows_output.cpp
-            userland/tools/px4_ts_core.cpp
         )
         target_link_libraries(px4_windows_ts_output_tests PRIVATE
-            px4_userland_core
-            px4_userland_windows_ipc
+            dtv::host_ts
         )
         target_include_directories(px4_windows_ts_output_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
@@ -772,19 +770,25 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
             userland/tests/posix_ipc_tests.cpp
             userland/tests/posix_tuner_nonce_tests.cpp
             userland/tests/control_workers_tests.cpp
-            userland/tools/px4_ts_core.cpp
-            userland/tools/px4_ts_posix.cpp
-            userland/tests/px4_ts_tests.cpp
             userland/tools/px4ctl_format.cpp
             userland/tests/px4ctl_format_tests.cpp
             userland/tools/px4d_list_format.cpp
             userland/tests/px4d_list_format_tests.cpp
         )
-        target_link_libraries(px4_userland_tests PRIVATE px4_userland_posix_ipc)
+        target_link_libraries(px4_userland_tests PRIVATE
+            px4_userland_posix_ipc dtv::host_ts)
         target_compile_definitions(px4_userland_tests PRIVATE
             PX4_POSIX_IPC_TEST_ACCESS=1
         )
     endif()
+
+    add_executable(px4-ts-product-cli-tests
+        userland/tests/px4_ts_product_cli_tests.cpp)
+    target_link_libraries(px4-ts-product-cli-tests PRIVATE
+        dtv::host_ts dtv::tuning)
+    target_compile_features(px4-ts-product-cli-tests PRIVATE cxx_std_17)
+    px4_enable_project_warnings(px4-ts-product-cli-tests)
+    add_test(NAME px4-ts-product-cli-tests COMMAND px4-ts-product-cli-tests)
 
     if(PX4_PCSC_IFD_AVAILABLE)
         add_executable(px4_ifd_tests userland/tests/pcsc_ifd_tests.cpp)
@@ -891,15 +895,15 @@ if(TARGET px4_userland_posix_ipc)
 
     add_executable(px4-ts
         userland/tools/px4_ts.cpp
-        userland/tools/px4_ts_core.cpp
-        userland/tools/px4_ts_posix.cpp
     )
-    target_link_libraries(px4-ts PRIVATE px4_userland_posix_ipc)
+    target_link_libraries(px4-ts PRIVATE dtv::host_ts px4_userland_core)
     target_include_directories(px4-ts PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
         ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
     )
     target_compile_features(px4-ts PRIVATE cxx_std_17)
+    target_compile_definitions(px4-ts PRIVATE
+        PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}")
     px4_enable_project_warnings(px4-ts)
 
     if(PX4_ENABLE_LIBUSB)
