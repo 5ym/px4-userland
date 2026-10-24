@@ -400,6 +400,7 @@ if(WIN32)
             px4_userland_windows_ipc
             px4_userland_windows_platform
             px4_userland_libusb_transport
+            dtv::host_listener_context
             shell32
         )
         target_include_directories(px4d PRIVATE
@@ -917,6 +918,7 @@ if(TARGET px4_userland_posix_ipc)
         target_link_libraries(px4d PRIVATE
             px4_userland_posix_ipc
             px4_userland_libusb_transport
+            dtv::host_listener_context
         )
         if(TARGET px4_userland_posix_workers)
             target_link_libraries(px4d PRIVATE px4_userland_posix_workers)
