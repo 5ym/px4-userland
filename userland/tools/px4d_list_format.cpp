@@ -267,6 +267,18 @@ std::string format_device_list(const GroupingResult& grouping)
     return out;
 }
 
+std::string format_model_list()
+{
+    std::string out;
+    for (std::size_t i = 0U; const DeviceProfile* profile = device_profile_at(i); ++i) {
+        out += profile->name;
+        out.push_back(' ');
+        append_usb_id(out, kQ3U4VendorId, profile->product_id);
+        out.push_back('\n');
+    }
+    return out;
+}
+
 std::string format_device_list_json(const GroupingResult& grouping)
 {
     std::string out{"{\"enclosures\":["};

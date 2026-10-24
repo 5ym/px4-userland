@@ -227,6 +227,11 @@ const DeviceProfile& device_profile(DeviceModel model) noexcept
     return kDeviceProfiles[0];
 }
 
+const DeviceProfile* device_profile_at(std::size_t index) noexcept
+{
+    return index < kDeviceProfiles.size() ? &kDeviceProfiles[index] : nullptr;
+}
+
 bool valid_device_instance(std::string_view value) noexcept
 {
     return (value.size() == kQ3U4BaseSerialLength || value.size() == kUsbSerialLength) &&

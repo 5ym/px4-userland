@@ -67,6 +67,7 @@ void usage() noexcept
         "[--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
         "  px4d --list\n"
         "  px4d --list-json\n"
+        "  px4d --models\n"
         "\n"
         "  BASE_SERIAL is the 14-digit serial base for paired devices or the\n"
         "  15-digit USB serial for single-device models.  Pass one --fd per\n"
@@ -79,7 +80,9 @@ void usage() noexcept
 #endif
         "  --list             print connected supported enclosures and exit;\n"
         "  --list-json        print the same data as compact JSON and exit;\n"
-        "                     read-only, needs neither firmware nor a daemon\n");
+        "                     read-only, needs neither firmware nor a daemon\n"
+        "  --models           print supported models and their USB IDs, one per\n"
+        "                     line, and exit; static, no USB access\n");
 }
 
 int exit_status(Error error) noexcept
@@ -105,6 +108,18 @@ int exit_status(Error error) noexcept
     case Error::INTERNAL: return 70;
     }
     return 70;
+}
+
+// `px4d --models`: static supported-model table; touches no USB device.
+int list_models() noexcept
+{
+    const std::string output = tools::format_model_list();
+    if (std::fwrite(output.data(), 1U, output.size(), stdout) != output.size() ||
+        std::fflush(stdout) != 0) {
+        std::fprintf(stderr, "models: write to stdout failed\n");
+        return exit_status(Error::INTERNAL);
+    }
+    return 0;
 }
 
 // `px4d --list` (SPEC 4.6).  Native enumeration only reads descriptors and
@@ -731,6 +746,7 @@ int main(int argc, char** argv)
         usage();
         return 0;
     }
+    if (arguments.models) return list_models();
     if (arguments.list || arguments.list_json) return list_devices(arguments.list_json);
 
     FirmwareProvider firmware_provider(arguments.firmware);

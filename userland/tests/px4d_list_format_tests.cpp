@@ -204,6 +204,31 @@ bool test_json_rejected_null_and_escaping()
     return true;
 }
 
+// Every supported model appears as `MODEL VID:PID`, in table order, with no
+// connected device and no catalog fields (receivers, LNB, status, JSON, CSV).
+bool test_models_are_a_static_name_and_usb_id_table()
+{
+    const std::string expected =
+        "PX-Q3U4 0511:084a\n"
+        "PX-W3U4 0511:083f\n"
+        "PX-MLT5PE 0511:024e\n"
+        "DTV02A-5TS-P 0511:924e\n"
+        "PX-W3PE4 0511:023f\n"
+        "PX-W3PE5 0511:073f\n"
+        "PX-Q3PE4 0511:024a\n"
+        "PX-Q3PE5 0511:074a\n"
+        "PX-MLT8PE3 0511:0252\n"
+        "PX-MLT8PE5 0511:0253\n"
+        "DTV02A-4TS-P 0511:0254\n"
+        "PX-M1UR 0511:0854\n"
+        "PX-S1UR 0511:0855\n"
+        "DTV03A-1TU 0511:0052\n"
+        "DTV02-1T1S-U 0511:004b\n"
+        "DTV02A-1T1S-U 0511:084b\n";
+    CHECK(tools::format_model_list() == expected);
+    return true;
+}
+
 }  // namespace
 
 bool run_px4d_list_format_tests()
@@ -214,5 +239,6 @@ bool run_px4d_list_format_tests()
            test_nothing_connected_prints_nothing() &&
            test_location_collision_and_duplicate_candidates() &&
            test_ready_serial_colliding_with_incomplete_is_not_unique() &&
-           test_json_rejected_null_and_escaping();
+           test_json_rejected_null_and_escaping() &&
+           test_models_are_a_static_name_and_usb_id_table();
 }

@@ -66,6 +66,8 @@ struct DeviceProfile final {
 const DeviceProfile* device_profile_for_usb_id(std::uint16_t vendor_id,
                                                std::uint16_t product_id) noexcept;
 const DeviceProfile& device_profile(DeviceModel model) noexcept;
+// Static table of every supported model, in table order; nullptr past the end.
+const DeviceProfile* device_profile_at(std::size_t index) noexcept;
 // Accepts the instance identifier of any supported model: a 14-digit Q3U4
 // base serial, or a 15-digit W3U4 or MLT5-family USB serial.
 bool valid_device_instance(std::string_view value) noexcept;
