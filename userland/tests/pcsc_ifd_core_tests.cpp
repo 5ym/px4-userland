@@ -241,9 +241,22 @@ bool test_ifd_against_core_context()
         }
         std::array<std::uint8_t, kIfdAtrMaxLength> atr{};
         std::size_t atr_length = atr.size();
+        family_ptr->card_.present.store(false, std::memory_order_relaxed);
+        const auto failed_power = adapter.power(0U, IfdPowerAction::power_up,
+            {atr.data(), atr.size()}, atr_length);
+        if (!check(failed_power == IfdResult::communication_error,
+                  "POWER_UP without card")) { passed = false; break; }
+        if (!check(atr_length == 0U, "failed POWER_UP clears ATR")) {
+            passed = false;
+            break;
+        }
+        family_ptr->card_.present.store(true, std::memory_order_relaxed);
+        if (!check(adapter.presence(0U) == IfdResult::icc_present,
+                  "presence recovers after failed POWER_UP")) { passed = false; break; }
+        atr_length = atr.size();
         if (!check(adapter.power(0U, IfdPowerAction::power_up,
                   {atr.data(), atr.size()}, atr_length) == IfdResult::success,
-                  "POWER_UP")) { passed = false; break; }
+                  "POWER_UP recovers after failed POWER_UP")) { passed = false; break; }
         if (!check(family_ptr->card_initialized(), "POWER_UP initializes card")) {
             passed = false;
             break;

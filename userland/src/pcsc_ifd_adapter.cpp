@@ -498,6 +498,10 @@ Result<IfdCardConnectResult> IfdAdapter::power_or_reset(bool force_reset) noexce
         Result<IfdCardConnectResult>::failure(Error::INTERNAL);
     if (card_handle_ == 0U) {
         result = client_->connect_shared();
+        if (!result) {
+            invalidate_client();
+            return result;
+        }
     } else if (force_reset || !powered_) {
         result = client_->reset(card_handle_);
     } else {

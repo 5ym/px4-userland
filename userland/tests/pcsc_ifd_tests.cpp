@@ -470,14 +470,14 @@ bool test_adapter_state_and_recovery()
           IfdResult::success);
     CHECK(atr_length == 0U && state.disconnects == 1U);
     CHECK(adapter.close_channel(0U) == IfdResult::success);
-    CHECK(state.closes == 1U);
+    CHECK(state.closes == 2U);
 
     state.status_error = Error::OK;
     CHECK(adapter.create_channel_by_name(0U, name) == IfdResult::success);
     state.status_error = Error::DISCONNECTED;
     CHECK(adapter.presence(0U) == IfdResult::icc_not_present);
     CHECK(adapter.presence(0U) == IfdResult::icc_not_present);
-    CHECK(state.factory_connects == 3U && state.closes == 3U);
+    CHECK(state.factory_connects == 4U && state.closes == 4U);
     return true;
 }
 
