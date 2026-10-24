@@ -5,6 +5,20 @@ Status: Frozen v0.37 (2026-10-11)
 本書の`MUST`、`MUST NOT`、`SHOULD`は規範要件を示す。実機観測で前提の誤りが判明した場合も暗黙に
 実装だけを変えず、本書のversionと変更理由を更新してから実装する。
 
+### 1.0.0 CLI決定の追補 (2026-10-24)
+
+2026-10-17のユーザー決定を反映し、旧4.6節の公開`px4d --list`は廃止する。
+パーサーは通常の不正引数としてexit 2で拒否し、接続機器の列挙は`--list-json`を使う。
+旧テキスト表示の記述は履歴とし、独立した`px4ctl list`は保持する。
+`--models`は対応機種名とVID:PIDの静的テキストをUSBアクセスなしで表示する。
+
+配布4 CLI (`px4d` / `px4-ts` / `px4ctl` / `px4-termux`) の`--version`は、
+コマンド名または製品名とプロジェクトの`VERSION`由来の自身の版をstdoutへ1行出しexit 0とする。
+既存の`px4ctl`は`px4-userland VERSION`、他の3コマンドは`コマンド名 VERSION`とする。
+単独指定だけ受理し、他引数との併用はexit 2。機器・firmware・IPC接続・USB許可要求は不要とする。
+Termuxランチャーにもbuild/package時に同じ`VERSION`を埋め込み、別の版定数を管理しない。
+この追補はCLIの既決仕様を回収するもので、製品版・IPC版・受信経路は変更しない。
+
 ### v0.37 change record (2026-10-11)
 
 - 1、3、7.6、10.4節: Windows 11 x64へapplication-localなB25用WinSCard互換DLLを追加する。

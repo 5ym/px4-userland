@@ -992,8 +992,13 @@ jobs:
           foreach ($program in 'px4d', 'px4-ts', 'px4ctl') {
             & (Join-Path $extract "$program.exe") --help
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $version = & (Join-Path $extract "$program.exe") --version
+            $name = if ($program -eq 'px4ctl') { 'px4-userland' } else { $program }
+            if ($LASTEXITCODE -ne 0 -or $version -ne "$name $((Get-Content VERSION -Raw).Trim())") { throw "$program version mismatch" }
           }
           & (Join-Path $extract 'px4d.exe') --list
+          if ($LASTEXITCODE -ne 2) { throw 'retired --list must exit 2' }
+          & (Join-Path $extract 'px4d.exe') --list-json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Run the SDK-linked DATA/function import fixture beside the exact
           # DLL extracted from the audited release ZIP, not a test-build DLL.

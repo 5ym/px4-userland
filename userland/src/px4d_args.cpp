@@ -101,10 +101,10 @@ Px4dArguments parse_px4d_arguments(int argc,
             result.help = true;
             return result;
         }
-        if (option == "--list") {
-            if (argc != 2) return invalid("--list cannot be combined");
+        if (option == "--version") {
+            if (argc != 2) return invalid("--version cannot be combined");
             result.valid = true;
-            result.list = true;
+            result.version = true;
             return result;
         }
         if (option == "--list-json") {

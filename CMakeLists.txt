@@ -16,6 +16,8 @@ if(NOT PX4_VERSION_TRAILING STREQUAL "\n" OR
 endif()
 project(px4_userland VERSION "${PX4_PROJECT_VERSION}" LANGUAGES CXX)
 
+configure_file(packaging/termux/px4-termux px4-termux @ONLY)
+
 option(PX4_BUILD_TESTS "Build offline portable-core tests" OFF)
 option(PX4_ENABLE_LIBUSB "Build the native libusb transport" ON)
 option(PX4_BUILD_TOOLS "Build developer-only USB probe tools" OFF)
@@ -1172,4 +1174,10 @@ endif()
 
 if(PX4_RELEASE_PX4D_NO_BUILD_ID AND TARGET px4d)
     target_link_options(px4d PRIVATE "LINKER:--build-id=none")
+endif()
+
+if(PX4_BUILD_TESTS AND NOT WIN32 AND TARGET px4d AND TARGET px4-ts AND TARGET px4ctl)
+    add_test(NAME px4-device-free-cli-tests COMMAND sh
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test-px4-cli.sh"
+        "${CMAKE_CURRENT_BINARY_DIR}" "${PROJECT_VERSION}")
 endif()
