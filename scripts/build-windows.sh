@@ -16,10 +16,11 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 output=
 test_output=
 libusb_source_dir=
+shared_winscard_dll=
 cache=${PX4_WINDOWS_CACHE:-"$root/.windows-toolchain"}
 skip_toolchain_download=0
 usage() {
-    printf '%s\n' "usage: $0 --output DIR [--test-output DIR] [--cache DIR] [--skip-toolchain-download] [--libusb-source-dir DIR]"
+    printf '%s\n' "usage: $0 --output DIR [--test-output DIR] [--cache DIR] [--skip-toolchain-download] [--libusb-source-dir DIR] [--shared-winscard-dll FILE]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -28,6 +29,7 @@ while [ "$#" -gt 0 ]; do
     --test-output) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; test_output=$2; shift 2 ;;
     --cache) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; cache=$2; shift 2 ;;
     --libusb-source-dir) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; libusb_source_dir=$2; shift 2 ;;
+    --shared-winscard-dll) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; shared_winscard_dll=$2; shift 2 ;;
     --skip-toolchain-download) skip_toolchain_download=1; shift ;;
     --help) usage; exit 0 ;;
     *) printf '%s\n' "unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -40,6 +42,10 @@ if [ -n "$libusb_source_dir" ]; then
         printf '%s\n' "invalid libusb source directory: $libusb_source_dir" >&2
         exit 1
     fi
+fi
+if [ -n "$shared_winscard_dll" ] && [ ! -f "$shared_winscard_dll" ]; then
+    printf '%s\n' "shared WinSCard DLL is not a regular file: $shared_winscard_dll" >&2
+    exit 1
 fi
 
 # Pinned inputs. Update together with the release record.
@@ -239,6 +245,8 @@ build="$work/build"
 configure_build "$build" OFF ON
 cmake --build "$build" --target px4d px4-ts px4ctl px4_winscard
 
+build_winscard_dll=$(find "$build" -type f -name WinSCard.dll -print -quit)
+
 for program in px4d px4-ts px4ctl; do
     [ -f "$build/$program.exe" ] || {
         printf '%s\n' "expected executable $program.exe was not produced" >&2
@@ -248,12 +256,16 @@ done
 for program in px4d px4-ts px4ctl; do
     cp "$build/$program.exe" "$output/$program.exe"
 done
-[ -f "$build/WinSCard.dll" ] || {
+[ -n "$build_winscard_dll" ] || {
     printf '%s\n' 'expected x64 WinSCard.dll was not produced' >&2
     exit 1
 }
 mkdir -p "$output/winscard"
-cp "$build/WinSCard.dll" "$output/winscard/WinSCard.dll"
+if [ -n "$shared_winscard_dll" ]; then
+    cp "$shared_winscard_dll" "$output/winscard/WinSCard.dll"
+else
+    cp "$build_winscard_dll" "$output/winscard/WinSCard.dll"
+fi
 if [ -e "$output/libusb-1.0.dll" ]; then
     printf '%s\n' 'refusing to stage libusb-1.0.dll; libusb is statically linked' >&2
     exit 1
@@ -285,6 +297,11 @@ if [ -n "$test_output" ]; then
     # libusb as production. No test opens a physical USB device.
     configure_build "$test_build" ON ON
     cmake --build "$test_build"
+    test_build_winscard_dll=$(find "$test_build" -type f -name WinSCard.dll -print -quit)
+    [ -n "$test_build_winscard_dll" ] || {
+        printf '%s\n' 'expected test-build x64 WinSCard.dll was not produced' >&2
+        exit 1
+    }
     for test_program in "$test_build"/*_tests.exe; do
         [ -f "$test_program" ] || continue
         cp "$test_program" "$test_output/"
@@ -305,7 +322,11 @@ if [ -n "$test_output" ]; then
     done
     # The SDK-linked fixture must resolve the application-local DLL by its
     # real import table, including the g_rgSCardT1Pci DATA import.
-    cp "$test_build/WinSCard.dll" "$test_output/WinSCard.dll"
+    if [ -n "$shared_winscard_dll" ]; then
+        cp "$shared_winscard_dll" "$test_output/WinSCard.dll"
+    else
+        cp "$test_build_winscard_dll" "$test_output/WinSCard.dll"
+    fi
     "$objdump_tool" -p "$test_output/px4_windows_winscard_import_tests.exe" |
         awk '/DLL Name:/ { selected = tolower($NF) == "winscard.dll" } selected { print }' \
         > "$work/winscard-fixture-imports.txt"

@@ -143,6 +143,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(cmake/DtvUserlandCoreDependency.cmake)
+if(WIN32 AND PX4_BUILD_WINSCARD)
+    set(DTV_USERLAND_BUILD_WINDOWS_WINSCARD ON)
+else()
+    set(DTV_USERLAND_BUILD_WINDOWS_WINSCARD OFF)
+endif()
 px4_add_dtv_userland_core()
 
 add_library(px4_userland_core STATIC
@@ -422,13 +427,7 @@ if(WIN32)
         target_compile_features(px4_winscard_client PUBLIC cxx_std_17)
         target_link_libraries(px4_winscard_client PUBLIC advapi32 bcrypt ws2_32 Threads::Threads dtv::core)
         px4_enable_project_warnings(px4_winscard_client)
-        add_library(px4_winscard SHARED
-            userland/src/windows/winscard_proxy.cpp
-            scripts/px4-winscard.def
-        )
-        target_link_libraries(px4_winscard PRIVATE px4_winscard_client)
-        set_target_properties(px4_winscard PROPERTIES PREFIX "" OUTPUT_NAME "WinSCard")
-        px4_enable_project_warnings(px4_winscard)
+        dtv_add_windows_winscard_dll(px4_winscard)
     endif()
 
     add_executable(px4ctl
@@ -636,6 +635,22 @@ if(WIN32)
         add_test(NAME px4_windows_control_tests COMMAND px4_windows_control_tests)
 
         if(PX4_BUILD_WINSCARD)
+            add_executable(px4_windows_winscard_native_fixture_tests
+                "${dtv_userland_core_SOURCE_DIR}/tests/windows_winscard_native_fixture_tests.cpp")
+            target_include_directories(px4_windows_winscard_native_fixture_tests PRIVATE
+                "${dtv_userland_core_SOURCE_DIR}/adapters/windows_winscard"
+                "${dtv_userland_core_SOURCE_DIR}/adapters/host_runtime/include")
+            target_link_libraries(px4_windows_winscard_native_fixture_tests PRIVATE
+                dtv_windows_winscard_client dtv::control dtv::host_runtime
+                ws2_32 bcrypt advapi32)
+            add_dependencies(px4_windows_winscard_native_fixture_tests px4_winscard)
+            px4_enable_project_warnings(px4_windows_winscard_native_fixture_tests)
+            add_test(NAME px4_windows_winscard_native_fixture_tests
+                COMMAND px4_windows_winscard_native_fixture_tests
+                    $<TARGET_FILE:dtv_windows_winscard>)
+            set_tests_properties(px4_windows_winscard_native_fixture_tests
+                PROPERTIES TIMEOUT 60)
+
             add_executable(px4_windows_winscard_client_tests
                 userland/tests/windows_winscard_client_tests.cpp)
             target_link_libraries(px4_windows_winscard_client_tests PRIVATE px4_winscard_client)
