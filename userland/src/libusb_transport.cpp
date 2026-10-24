@@ -1683,6 +1683,12 @@ std::size_t Q3U4Runtime::bridge_count() const noexcept
     return device_profile(impl_->model_).bridge_count;
 }
 
+UsbLocation Q3U4Runtime::usb_location(std::size_t function_index) const noexcept
+{
+    if (impl_ == nullptr || function_index >= impl_->locations_.size()) return {};
+    return impl_->locations_[function_index];
+}
+
 bool Q3U4Runtime::quarantined() const noexcept
 {
     if (impl_ == nullptr || impl_->state_ == nullptr) {
@@ -1929,6 +1935,8 @@ Result<void> Q3U4Runtime::Impl::acquire_native(
     model_ = group.model;
     transports_[0U] = std::move(transports[0U]);
     transports_[1U] = std::move(transports[1U]);
+    for (std::size_t slot = 0U; slot < bridge_count; ++slot)
+        locations_[slot] = candidates[slot]->observation.location;
     cleanup();
     return Result<void>::success();
 }
@@ -2057,6 +2065,8 @@ Result<void> Q3U4Runtime::Impl::acquire_fds(const std::vector<int>& fds,
     model_ = group.model;
     transports_[0U] = std::move(transports[0U]);
     transports_[1U] = std::move(transports[1U]);
+    for (std::size_t slot = 0U; slot < bridge_count; ++slot)
+        locations_[slot] = pending[selected_indices[slot]].observation.location;
     cleanup();
     return Result<void>::success();
 #endif

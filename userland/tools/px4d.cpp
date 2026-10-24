@@ -227,9 +227,21 @@ bool set_wire_text(dtv::userland::wire::WString<N>& target,
     return true;
 }
 
+std::string usb_path(const UsbLocation& location)
+{
+    if (!location.has_bus || location.port_count == 0U) return {};
+    std::string value = std::to_string(location.bus);
+    for (std::size_t index = 0U; index < location.port_count; ++index) {
+        value.push_back(index == 0U ? '-' : '.');
+        value += std::to_string(location.port_path[index]);
+    }
+    return value;
+}
+
 dtv::userland::wire::ListResponse make_canonical_list(
     const DeviceProfile& profile, std::string_view base_serial,
     std::uint8_t bridge_count, bool dual_system, bool serial_unique,
+    const Q3U4Runtime& runtime,
     const dtv::userland::wire::Epoch& epoch,
     const dtv::userland::wire::Producer& producer) noexcept
 {
@@ -269,6 +281,20 @@ dtv::userland::wire::ListResponse make_canonical_list(
         (void)set_wire_text(function.model.value.name, profile.name);
         function.identification_reason = wire::IdentificationReason::none;
         function.present = true;
+        const UsbLocation location = runtime.usb_location(index);
+        if (location.has_bus) {
+            function.location.bus.present = true;
+            function.location.bus.value = location.bus;
+        }
+        if (location.has_address) {
+            function.location.address.present = true;
+            function.location.address.value = location.address;
+        }
+        const std::string path = usb_path(location);
+        if (!path.empty()) {
+            function.location.usb_path.present = true;
+            (void)set_wire_text(function.location.usb_path.value, path);
+        }
     }
 
     const auto records = ipc::receiver_records(profile.receiver_count, dual_system);
@@ -303,7 +329,8 @@ dtv::userland::wire::ListResponse make_canonical_list(
 }
 
 int serve_core(const Px4dArguments& arguments, const std::string& base_serial,
-               DeviceModel model, TunerServiceBackend& tuner_backend,
+               DeviceModel model, const Q3U4Runtime& runtime,
+               TunerServiceBackend& tuner_backend,
                CardServiceBackend& card_backend, CardProtocolSession& card_protocol,
                TunerServiceTime& time, Q3U4StreamDataPlane& stream,
                std::uint8_t bridge_count, bool dual_system = false) noexcept
@@ -333,6 +360,7 @@ int serve_core(const Px4dArguments& arguments, const std::string& base_serial,
         device_profile(model), base_serial, bridge_count, dual_system,
         px4d_open_mode(arguments) == Px4dOpenMode::native &&
             arguments.usb_path_count == 0U,
+        runtime,
         epoch, producer);
     config.context.epoch = epoch;
     config.context.instance.present = true;
@@ -448,7 +476,7 @@ int run_q3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    return serve_core(arguments, base_serial, runtime.model(), tuner_backend,
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
                       backend, protocol, time, *stream.value(), 2U);
 }
 
@@ -608,7 +636,7 @@ int run_w3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    return serve_core(arguments, base_serial, runtime.model(), tuner_backend,
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
                       backend, protocol, time, *stream.value(), 1U);
 }
 
@@ -645,7 +673,7 @@ int run_mlt5pe(const Px4dArguments& arguments, Q3U4Runtime& runtime,
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    return serve_core(arguments, base_serial, runtime.model(), tuner_backend,
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
                       backend, protocol, time, *stream.value(), 1U,
                       satellite_supported || receiver_count > 1U);
 }
@@ -673,7 +701,7 @@ int run_single_receiver(const Px4dArguments& arguments, Q3U4Runtime& runtime,
         return exit_status(stream.error());
     }
     const bool dual = device_profile(runtime.model()).dual_system;
-    return serve_core(arguments, base_serial, runtime.model(), frontend,
+    return serve_core(arguments, base_serial, runtime.model(), runtime, frontend,
                       frontend, protocol, time, *stream.value(), 1U, dual);
 }
 
