@@ -349,8 +349,9 @@ runtime_dir="$PREFIX/tmp/p4"
 
 ```sh
 px4d --device SERIAL --firmware PATH [--usb-path BUS:ADDRESS|BUS-PORT ...] [--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]
-px4d --list
 px4d --list-json
+px4d --models
+px4d --version
 ```
 
 - `--device SERIAL`: 2 USB機種の14桁base serial、または単一USB機種の15桁USB serialを指定します。同じserialの候補が複数ある場合は任意の1台を選ばず、候補のUSB位置を表示して終了します。
@@ -362,22 +363,9 @@ px4d --list-json
 - `--runtime-dir PATH`: ランタイムルートディレクトリを指定します（省略時は `$XDG_RUNTIME_DIR`）。
 - `--allow-lnb-power`: LNB 15V 対応機種で、衛星放送受信時の給電を許可します（安全のための明示的 opt-in）。非対応の5機種は上の一覧を参照してください。
 - `--fd FD [--fd FD]`: Android 環境などで、ホスト側が開いた USB ファイルディスクリプタを直接渡して起動します。PX-Q3U4 は 2 つ、PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE は 1 つ指定します（この場合 `--device` は任意）。
-- `--list`: 接続中の対象筐体を列挙して終了します（単独で指定）。シリアル・機種・状態・USB位置・各受信機の放送方式とLNB 15V対応能力を表示します。`serial_unique=false`ならシリアル単独での選択はできません。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。筐体にまとめられなかった対象機種の USB デバイスは `rejected` 行で理由付きで出ます（USB ノードを開く権限が無いと `status=open_failed`）。仕様は `SPEC.md` 4.6 節です。
-- `--list-json`: 同じ情報を整形しない単一JSON文書で出します。`--list`とは排他です。場所が不明な項目は`null`になり、`ungrouped_usb_devices`には`invalid_serial`または`open_failed`のUSB観測を載せます。
-
-USB位置は書式を示す例です。
-
-```text
-$ px4d --list
-serial=00001205000960 model=PX-Q3U4 usb=0511:084a status=ready receivers=8 serial_unique=true dev1_bus=1 dev1_address=28 dev1_port=1-7.4.1 dev2_bus=1 dev2_address=29 dev2_port=1-7.4.2
-receiver=0 device=1 local=0 system=ISDB-S lnb_15v_supported=true
-receiver=1 device=1 local=1 system=ISDB-S lnb_15v_supported=true
-receiver=2 device=1 local=2 system=ISDB-T lnb_15v_supported=false
-...
-serial=000020263901491 model=DTV02A-5TS-P usb=0511:924e status=ready receivers=5 serial_unique=true dev1_bus=1 dev1_address=30 dev1_port=1-7.5
-receiver=0 device=1 local=0 system=ISDB-T/S lnb_15v_supported=true
-...
-```
+- `--list-json`: 接続中の対象筐体を整形しない単一JSON文書で出して終了します（単独で指定）。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。場所が不明な項目は`null`になり、`ungrouped_usb_devices`には`invalid_serial`または`open_failed`のUSB観測を載せます。旧`px4d --list`は廃止し、不正引数（exit 2）とします。`px4ctl list`は引き続き利用できます。
+- `--models`: 対応機種名とVID:PIDの静的テキスト一覧を出します。USBアクセスは行いません。
+- `--version`: `px4d VERSION`を標準出力へ出して終了します。`px4-ts`と`px4-termux`も自身のコマンド名と同じ管理元`VERSION`の版を表示します。既存の`px4ctl`は製品名`px4-userland VERSION`を表示します。単独指定のみ受理し、他引数との併用はexit 2です。機器・firmware・稼働daemon・TermuxのUSB許可は不要です。通常ビルドのランチャーはbuildディレクトリの`px4-termux`、配布版はアーカイブ内のものを使います。
 
 同一Linuxホスト内のlocalhost usbipを利用する場合は、VHCI側の2ノードを事前にopenし、`--fd FD --fd FD`で指定する。同一libusbコンテキスト内にexport元の物理機能とimport先のVHCI機能が同一シリアルで現れ、通常列挙では重複スロット（`INVALID_ARGUMENT`）となるためである。なお、LAN経由のusbip構成は未検証である。
 

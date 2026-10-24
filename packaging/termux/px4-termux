@@ -10,6 +10,8 @@ usage()
         'usage: px4-termux --usb-device PATH [--usb-device PATH] --firmware PATH' \
         '                    [--device BASE_SERIAL] [--instance TOKEN] [--runtime-dir PATH]' \
         '                    [--group] [--allow-lnb-power]' \
+        '       px4-termux --version' \
+        '       px4-termux --help' \
         '' \
         'Pass --usb-device twice for PX-Q3U4 and once for PX-MLT5PE/DTV02A-5TS-P.'
 }
@@ -97,6 +99,25 @@ case "$stage" in
             --help)
                 [ "$#" -eq 1 ] || fail '--help cannot be combined with other arguments'
                 usage
+                exit 0
+                ;;
+            --version)
+                if [ "$#" -ne 1 ] || [ "$usb_device_count" -ne 0 ] ||
+                    [ -n "$firmware$device$instance$runtime_dir" ] ||
+                    [ "$group" -ne 0 ] || [ "$allow_lnb_power" -ne 0 ]; then
+                    fail '--version cannot be combined with other arguments'
+                fi
+                product_version='@PX4_PROJECT_VERSION@'
+                case "$product_version" in
+                @*)
+                    # A source checkout uses VERSION; builds and archives embed it.
+                    source_root=$(CDPATH='' cd -- "$(dirname -- "$script_path")/../.." && pwd -P) ||
+                        fail 'cannot resolve source VERSION'
+                    IFS= read -r product_version < "$source_root/VERSION" ||
+                        fail 'cannot read source VERSION'
+                    ;;
+                esac
+                printf 'px4-termux %s\n' "$product_version"
                 exit 0
                 ;;
             --usb-device)

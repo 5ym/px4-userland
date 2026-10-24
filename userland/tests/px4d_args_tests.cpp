@@ -241,14 +241,12 @@ bool test_device_and_general_rejections()
     return true;
 }
 
-// `--list` needs neither firmware nor a device and must stand alone, so a
+// `--list-json` needs neither firmware nor a device and must stand alone, so a
 // listing can never be mistaken for starting a daemon.
 bool test_list_mode()
 {
-    const Px4dArguments list = parse({"px4d", "--list"});
-    PX4D_CHECK(list.valid && list.list && !list.help);
-    PX4D_CHECK(list.device.empty() && list.firmware.empty());
-    PX4D_CHECK(!parse(native_arguments()).list);
+    PX4D_CHECK(!parse({"px4d", "--list"}).valid);
+    PX4D_CHECK(!parse({"px4d", "-l"}).valid);
 
     Arguments combined = native_arguments();
     combined.push_back("--list");
@@ -256,7 +254,7 @@ bool test_list_mode()
     PX4D_CHECK(!parse({"px4d", "--list", "--list"}).valid);
     PX4D_CHECK(!parse({"px4d", "--list", "--help"}).valid);
     const Px4dArguments json = parse({"px4d", "--list-json"});
-    PX4D_CHECK(json.valid && json.list_json && !json.list && json.device.empty());
+    PX4D_CHECK(json.valid && json.list_json && json.device.empty());
     PX4D_CHECK(!parse({"px4d", "--list", "--list-json"}).valid);
     PX4D_CHECK(!parse({"px4d", "--list-json", "--list"}).valid);
     PX4D_CHECK(!parse({"px4d", "--list-json", "--list-json"}).valid);
@@ -266,11 +264,11 @@ bool test_list_mode()
     return true;
 }
 
-// `--models` is a static table print: it stands alone like `--list`.
+// `--models` is a static table print: it stands alone like `--list-json`.
 bool test_models_mode()
 {
     const Px4dArguments models = parse({"px4d", "--models"});
-    PX4D_CHECK(models.valid && models.models && !models.list && !models.list_json);
+    PX4D_CHECK(models.valid && models.models && !models.list_json);
     PX4D_CHECK(models.device.empty() && models.firmware.empty());
     PX4D_CHECK(!parse(native_arguments()).models);
     PX4D_CHECK(!parse({"px4d", "--models", "--models"}).valid);
@@ -284,11 +282,25 @@ bool test_models_mode()
     return true;
 }
 
+bool test_version_mode()
+{
+    const Px4dArguments version = parse({"px4d", "--version"});
+    PX4D_CHECK(version.valid && version.version && !version.help);
+    PX4D_CHECK(version.device.empty() && version.firmware.empty());
+    PX4D_CHECK(!parse(native_arguments()).version);
+    for (const char* option : {"--version", "--help", "--models", "--list-json",
+                               "--device", "--unknown"}) {
+        PX4D_CHECK(!parse({"px4d", "--version", option}).valid);
+        PX4D_CHECK(!parse({"px4d", option, "--version"}).valid);
+    }
+    return true;
+}
+
 }  // namespace
 
 bool run_px4d_args_tests()
 {
     return test_valid_modes() && test_fd_rejections() &&
            test_device_and_general_rejections() && test_list_mode() &&
-           test_models_mode();
+           test_models_mode() && test_version_mode();
 }

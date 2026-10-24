@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 import stat
 import struct
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -305,6 +306,11 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
     return notice.replace("@DEPENDENCY_TEXT@", dependency_text)
 
 
+def render_termux_launcher(repo_root: Path) -> str:
+    template = (repo_root / "packaging" / "termux" / TERMUX_LAUNCHER).read_text()
+    return template.replace("@PX4_PROJECT_VERSION@", source_version(repo_root))
+
+
 def self_test_android_notice_and_archive(repo_root: Path) -> None:
     """Exercise the generated Android notice and the final archive audit together."""
     version = source_version(repo_root)
@@ -328,9 +334,12 @@ def self_test_android_notice_and_archive(repo_root: Path) -> None:
         stage.mkdir()
         for name in ("LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"):
             copy_regular(repo_root / name, stage / name)
-        copy_regular(repo_root / "packaging" / "termux" / TERMUX_LAUNCHER,
-                     stage / TERMUX_LAUNCHER)
+        write_text(stage / TERMUX_LAUNCHER, render_termux_launcher(repo_root))
         (stage / TERMUX_LAUNCHER).chmod(0o755)
+        result = subprocess.run(["sh", str(stage / TERMUX_LAUNCHER), "--version"],
+                                cwd=stage, capture_output=True, text=True, check=True)
+        if result.stdout != f"px4-termux {version}\n" or result.stderr:
+            fail("packaged Termux launcher version does not match VERSION")
         for program in PROGRAMS:
             write_text(stage / program, "synthetic Android ELF\n")
             (stage / program).chmod(0o755)
@@ -837,8 +846,7 @@ def main() -> int:
         else:
             if not args.libusb_source_archive or not args.ndk_root or not args.link_map_dir:
                 fail("Android requires --libusb-source-archive, --ndk-root, and --link-map-dir")
-            copy_regular(args.repo_root / "packaging" / "termux" / TERMUX_LAUNCHER,
-                         stage / TERMUX_LAUNCHER)
+            write_text(stage / TERMUX_LAUNCHER, render_termux_launcher(args.repo_root))
             (stage / TERMUX_LAUNCHER).chmod(0o755)
             verify_pinned_libusb(args.libusb_source_archive.resolve())
             ndk = args.ndk_root.resolve()
