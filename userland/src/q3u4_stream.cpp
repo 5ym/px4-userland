@@ -539,7 +539,7 @@ public:
             // Keep already queued packets readable by the data endpoint.  A
             // later release_final() or the final EOF read retires this
             // drain-only session before the receiver can be reopened.
-            session.draining = session.count != 0U;
+            session.draining = true;
             session.changed.notify_all();
         }
         if (bridge.attached_count != 0U) --bridge.attached_count;

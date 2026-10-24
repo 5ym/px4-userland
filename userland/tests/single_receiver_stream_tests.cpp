@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "px4/q3u4_stream.h"
 
+#include <array>
 #include <cstdio>
 #include <memory>
 
@@ -71,6 +72,12 @@ bool check_profile(DeviceModel model, bool dual_system) noexcept
     auto& plane = *created.value();
     const auto terrestrial = attachment(ipc::System::ISDB_T, 1U);
     if (!plane.attach(terrestrial) || !plane.detach(terrestrial)) return false;
+    std::array<std::uint8_t, Q3U4StreamDataPlane::kPacketSize> output{};
+    const auto stopped = plane.read(
+        terrestrial, MutableByteView{output.data(), output.size()}, Timeout{0U});
+    if (!stopped || !stopped.value().eof ||
+        stopped.value().terminal != StreamTerminal::stopped)
+        return false;
 
     const auto satellite = attachment(ipc::System::ISDB_S, 2U);
     const auto satellite_result = plane.attach(satellite);

@@ -398,12 +398,20 @@ bool test_detach_drain_and_final_release()
         replacement, MutableByteView{one.data(), one.size()}, Timeout{0U});
     STREAM_CHECK(replacement_read && replacement_read.value().timed_out);
     STREAM_CHECK(plane.detach(replacement));
+    STREAM_CHECK(plane.release_final(replacement));
 
     const auto empty = attachment(2U, 202U);
     STREAM_CHECK(plane.attach(empty) && plane.detach(empty));
     const auto empty_final = plane.final_snapshot(empty);
     STREAM_CHECK(empty_final && empty_final.value().counters.packets == 0U &&
-                 plane.release_final(empty));
+                 empty_final.value().terminal ==
+                     static_cast<std::uint8_t>(StreamTerminal::stopped));
+    std::array<std::uint8_t, TaggedTsDemux::kPacketSize> empty_output{};
+    const auto empty_eof = plane.read(
+        empty, MutableByteView{empty_output.data(), empty_output.size()}, Timeout{0U});
+    STREAM_CHECK(empty_eof && empty_eof.value().eof &&
+                 empty_eof.value().terminal == StreamTerminal::stopped);
+    STREAM_CHECK(plane.release_final(empty));
 
     FakeTransport failing_dev1;
     FakeTransport failing_dev2;
@@ -519,8 +527,11 @@ bool test_continuity_and_epoch_reset()
                           counters.value().continuity_errors == expected_errors &&
                           counters.value().tei_packets == expected_tei &&
                           plane.detach(value);
-        if (!good) (void)plane.detach(value);
-        return good;
+        if (!good) {
+            (void)plane.detach(value);
+            return false;
+        }
+        return static_cast<bool>(plane.release_final(value));
     };
 
     std::vector<std::uint8_t> normal;
@@ -819,9 +830,13 @@ bool test_start_failure_and_stale_replacement()
     dev1.start_error = Error::OK;
     STREAM_CHECK(plane.attach(first));
     STREAM_CHECK(plane.detach(first));
+    std::array<std::uint8_t, 188U> output{};
+    const auto final_eof = plane.read(
+        first, MutableByteView{output.data(), output.size()}, Timeout{0U});
+    STREAM_CHECK(final_eof && final_eof.value().eof &&
+                 final_eof.value().terminal == StreamTerminal::stopped);
     const auto replacement = attachment(0U, 75U);
     STREAM_CHECK(plane.attach(replacement));
-    std::array<std::uint8_t, 188U> output{};
     STREAM_CHECK(plane.read(first, MutableByteView{output.data(), output.size()},
                             Timeout{0U}).error() == Error::NOT_FOUND);
     STREAM_CHECK(plane.detach(first).error() == Error::NOT_FOUND);
