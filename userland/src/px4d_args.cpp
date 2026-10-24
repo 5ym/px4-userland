@@ -94,7 +94,10 @@ Px4dArguments parse_px4d_arguments(int argc,
     bool have_allow_lnb_power = false;
     for (int index = 1; index < argc; ++index) {
         if (argv[index] == nullptr) return invalid("null argument");
-        const std::string_view option(argv[index]);
+        std::string_view option(argv[index]);
+        if (option == "-h") option = "--help";
+        else if (option == "-F") option = "--firmware";
+        else if (option == "-v") option = "--verbose";
         if (option == "--help") {
             if (argc != 2) return invalid("--help cannot be combined");
             result.valid = true;
@@ -122,6 +125,10 @@ Px4dArguments parse_px4d_arguments(int argc,
         if (option == "--group") {
             if (result.group) return invalid("duplicate --group");
             result.group = true;
+            continue;
+        }
+        if (option == "--verbose") {
+            result.verbose = true;
             continue;
         }
         if (option == "--allow-lnb-power") {

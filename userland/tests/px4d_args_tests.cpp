@@ -296,11 +296,44 @@ bool test_version_mode()
     return true;
 }
 
+bool test_short_options_and_verbose()
+{
+    const auto help = parse({"px4d", "-h"});
+    PX4D_CHECK(help.valid && help.help);
+    for (const char* option : {"-h", "--help", "--version", "--models", "--list-json"}) {
+        PX4D_CHECK(!parse({"px4d", "-v", option}).valid);
+        PX4D_CHECK(!parse({"px4d", option, "--verbose"}).valid);
+        PX4D_CHECK(!parse({"px4d", "-h", option}).valid);
+    }
+    Arguments short_firmware = native_arguments();
+    short_firmware[3U] = "-F";
+    PX4D_CHECK(parse(short_firmware).valid);
+    PX4D_CHECK(parse(short_firmware).firmware == parse(native_arguments()).firmware);
+    for (const char* option : {"-v", "--verbose"}) {
+        Arguments verbose = short_firmware;
+        verbose.push_back(option);
+        const auto parsed = parse(verbose);
+        PX4D_CHECK(parsed.valid && parsed.verbose && parsed.firmware == "firmware.bin");
+    }
+    short_firmware.insert(short_firmware.end(), {"-v", "--verbose", "-v"});
+    PX4D_CHECK(parse(short_firmware).valid && parse(short_firmware).verbose);
+    for (const char* option : {"-F", "--firmware"}) {
+        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option}).valid);
+        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option, ""}).valid);
+        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option, "--help"}).valid);
+        Arguments duplicate = native_arguments();
+        duplicate.insert(duplicate.end(), {option, "other.bin"});
+        PX4D_CHECK(!parse(duplicate).valid);
+    }
+    PX4D_CHECK(!parse(native_arguments()).verbose);
+    return true;
+}
+
 }  // namespace
 
 bool run_px4d_args_tests()
 {
     return test_valid_modes() && test_fd_rejections() &&
            test_device_and_general_rejections() && test_list_mode() &&
-           test_models_mode() && test_version_mode();
+           test_models_mode() && test_version_mode() && test_short_options_and_verbose();
 }

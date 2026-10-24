@@ -25,6 +25,7 @@ struct Px4dArguments final {
     // `px4d --models`: print the supported-model table and exit.
     bool models = false;
     bool group = false;
+    bool verbose = false;
     bool allow_lnb_power = false;
 #if defined(_WIN32)
     // Windows Phase 1 cooperative parent-stop contract: exit with normal
