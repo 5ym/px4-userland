@@ -7,6 +7,12 @@ Status: Frozen v0.37 (2026-10-11)
 
 ### 1.0.0 CLI決定の追補 (2026-10-24)
 
+`px4d -h`は`--help`と同じ単独ヘルプ/exit 0、`-F PATH`は`--firmware PATH`と
+同じ値検証・読込処理、`-v`は`--verbose`と同じ起動時debug診断の有効化とする。
+verboseは既存Core Loggerの閾値をdebugへ切り替え、stderrへ定型診断だけを出す。
+繰り返し指定は同じ有効化とする。標準動作、単独help/version/models/list-jsonの併用拒否を維持し、
+機密値・TS/APDU本文を追加ログへ出さない。`-l`は追加しない。
+
 2026-10-17のユーザー決定を反映し、旧4.6節の公開`px4d --list`は廃止する。
 パーサーは通常の不正引数としてexit 2で拒否し、接続機器の列挙は`--list-json`を使う。
 旧テキスト表示の記述は履歴とし、独立した`px4ctl list`は保持する。

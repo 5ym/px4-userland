@@ -6,6 +6,7 @@
 #include "px4/firmware.h"
 #include "px4/it930x.h"
 #include "px4/libusb_transport.h"
+#include "px4/logging.h"
 #include "px4/platform_sleep.h"
 #include "px4/q3u4_stream.h"
 #include "px4/tuner_service.h"
@@ -73,6 +74,9 @@ void usage() noexcept
         "  15-digit USB serial for single-device models.  Pass one --fd per\n"
         "  USB device: two for paired models, one for single-device models.\n"
         "\n"
+        "  -h, --help         print this help and exit\n"
+        "  -F, --firmware PATH  load firmware from PATH\n"
+        "  -v, --verbose      print debug startup diagnostics to stderr\n"
         "  --allow-lnb-power  permit explicit ISDB-S 15 V requests; default off\n"
 #if defined(_WIN32)
         "  --exit-on-stdin-eof  exit with cleanup when stdin reaches EOF (Windows\n"
@@ -83,6 +87,12 @@ void usage() noexcept
         "  --models           print supported models and their USB IDs, one per\n"
         "                     line, and exit; static, no USB access\n"
         "  --version          print this program's version and exit\n");
+}
+
+void log_to_stderr(const LogRecord& record, void*) noexcept
+{
+    std::fprintf(stderr, "px4d %s: %.*s\n", log_level_string(record.level),
+                 static_cast<int>(record.message.size()), record.message.data());
 }
 
 int exit_status(Error error) noexcept
@@ -758,6 +768,8 @@ int main(int argc, char** argv)
     }
     if (arguments.list_json) return list_devices();
 
+    Logger logger(arguments.verbose ? LogLevel::debug : LogLevel::info, log_to_stderr);
+    logger.log(LogLevel::debug, "loading firmware");
     FirmwareProvider firmware_provider(arguments.firmware);
     const auto firmware = firmware_provider.load();
     if (!firmware) {
@@ -767,6 +779,7 @@ int main(int argc, char** argv)
     Result<std::unique_ptr<Q3U4Runtime>> runtime =
         Result<std::unique_ptr<Q3U4Runtime>>::failure(Error::INTERNAL);
     const Px4dOpenMode mode = px4d_open_mode(arguments);
+    logger.log(LogLevel::debug, "opening USB enclosure");
     if (mode == Px4dOpenMode::file_descriptors) {
         const std::vector<int> file_descriptors(
             arguments.file_descriptors.begin(),
@@ -820,6 +833,7 @@ int main(int argc, char** argv)
         return exit_status(Error::INVALID_ARGUMENT);
     }
     std::fprintf(stderr, "px4d device: %s\n", device_profile(model).name);
+    logger.log(LogLevel::debug, "starting receiver and card services");
     if (device_profile(model).bridge_count == 1U &&
         !device_profile(model).dual_system &&
         device_profile(model).receiver_count == ipc::kW3U4ReceiverCount) {
