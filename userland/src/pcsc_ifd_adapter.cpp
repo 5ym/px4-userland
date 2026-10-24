@@ -74,6 +74,7 @@ bool channel_failure(Error error) noexcept
     case Error::OK:
     case Error::INVALID_ARGUMENT:
     case Error::BUSY:
+    case Error::RESOURCE_LIMIT:
     case Error::UNSUPPORTED:
     case Error::NO_CARD:
     case Error::CARD_REMOVED:
@@ -339,6 +340,7 @@ IfdResult map_ifd_error(Error error, IfdOperation operation) noexcept
     case Error::INVALID_ARGUMENT:
     case Error::VERSION_MISMATCH:
     case Error::BUSY:
+    case Error::RESOURCE_LIMIT:
     case Error::USB_IO:
     case Error::PROTOCOL_ERROR:
     case Error::SLOW_CONSUMER:

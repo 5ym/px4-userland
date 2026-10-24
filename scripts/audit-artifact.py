@@ -153,6 +153,9 @@ WINDOWS_SOURCE_ALLOWED = re.compile(
     r"|userland/tools/[\w.+-]*windows[\w.+-]*"
     r"|userland/tests/windows_[\w./+-]+"
     r"|userland/include/px4/[\w.+-]*windows[\w.+-]*"
+    r"|third_party/dtv-userland-core/adapters/host_listener_context/src/windows/listener_io_windows\.cpp"
+    r"|third_party/dtv-userland-core/adapters/host_runtime/include/windows/windows_security\.h"
+    r"|third_party/dtv-userland-core/adapters/host_ts/windows/px4_ts_windows_output\.cpp"
     r"|scripts/build-windows\.sh"
     r"|docs/[\w./+-]*windows[\w./+-]*"
     r")$", re.IGNORECASE
