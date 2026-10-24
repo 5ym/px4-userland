@@ -951,7 +951,7 @@ jobs:
               & $suite.FullName (Join-Path $tests 'WinSCard.dll')
               $exitCode = $LASTEXITCODE
             } elseif ($suite.Name -eq 'px4_windows_winscard_client_tests.exe') {
-              # A deadlock regression in the production-DLL shutdown race
+              # A deadlock regression in the product client shutdown path
               # must fail promptly. Terminate only this spawned test process.
               $stdout = Join-Path $tests 'winscard-client.stdout.log'
               $stderr = Join-Path $tests 'winscard-client.stderr.log'

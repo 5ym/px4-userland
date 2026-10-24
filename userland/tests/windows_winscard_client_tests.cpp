@@ -756,7 +756,10 @@ Function imported_function(HMODULE module, const char* name) noexcept
     return function;
 }
 
-void test_production_dll_tvcas_sequence()
+// The shared Core DLL is exercised by windows_winscard_native_fixture_tests.
+// This earlier integration fixture hard-codes the PX4-only daemon namespace
+// and reader name, which the shared product-independent DLL no longer uses.
+[[maybe_unused]] void test_production_dll_tvcas_sequence()
 {
     TempRoot root;
     CHECK(root.valid());
@@ -961,7 +964,6 @@ int main()
     test_discovery_entry_and_time_bounds();
     test_untrusted_security_fails_closed();
     test_reparse_traversal_rejected();
-    test_production_dll_tvcas_sequence();
     if (failures != 0) {
         std::fprintf(stderr, "Windows WinSCard client tests: %d failure(s)\n", failures);
         return 1;
