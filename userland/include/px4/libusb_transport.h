@@ -43,6 +43,7 @@ public:
     std::string_view base_serial() const noexcept;
     DeviceModel model() const noexcept;
     std::size_t bridge_count() const noexcept;
+    UsbLocation usb_location(std::size_t function_index) const noexcept;
     bool quarantined() const noexcept;
 
 private:

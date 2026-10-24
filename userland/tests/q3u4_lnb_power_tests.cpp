@@ -88,10 +88,37 @@ bool test_validation_and_opt_in_gate()
     LNB_CHECK(denied.commit_tune(0U));
     const auto denied_15 = denied.begin_tune(0U, 15U);
     LNB_CHECK(!denied_15 && denied_15.error() == Error::UNSUPPORTED);
+    const auto denied_independent = denied.set_independent_power(true);
+    LNB_CHECK(!denied_independent && denied_independent.error() == Error::UNSUPPORTED);
     LNB_CHECK(dev1.calls.empty() && dev2.calls.empty());
     const auto invalid_voltage = denied.begin_tune(1U, 1U);
     LNB_CHECK(!invalid_voltage && invalid_voltage.error() == Error::INVALID_ARGUMENT);
     LNB_CHECK(dev1.calls.empty() && dev2.calls.empty());
+    return true;
+}
+
+bool test_independent_power_accounting()
+{
+    FakeLnbPower dev1;
+    FakeLnbPower dev2;
+    Q3U4LnbPowerCoordinator coordinator(dev1, dev2, true);
+
+    LNB_CHECK(coordinator.set_independent_power(true));
+    LNB_CHECK((dev1.calls == std::vector<bool>{true}));
+    LNB_CHECK((dev2.calls == std::vector<bool>{true}));
+    LNB_CHECK(coordinator.begin_tune(0U, 15U));
+    LNB_CHECK(coordinator.commit_tune(0U));
+    LNB_CHECK(coordinator.set_independent_power(false));
+    LNB_CHECK((dev1.calls == std::vector<bool>{true}));
+    LNB_CHECK((dev2.calls == std::vector<bool>{true, false}));
+    LNB_CHECK(coordinator.release_receiver(0U));
+    LNB_CHECK((dev1.calls == std::vector<bool>{true, false}));
+
+    LNB_CHECK(coordinator.set_independent_power(true));
+    LNB_CHECK(coordinator.disconnect(Q3U4Bridge::dev1));
+    const auto disabled = coordinator.set_independent_power(false);
+    LNB_CHECK(!disabled && disabled.error() == Error::DISCONNECTED);
+    LNB_CHECK((dev2.calls == std::vector<bool>{true, false, true, false}));
     return true;
 }
 
@@ -408,12 +435,13 @@ bool test_production_tuner_adapter_uses_narrow_authority()
 bool run_q3u4_lnb_power_tests()
 {
     const bool validation = test_validation_and_opt_in_gate();
+    const bool independent = test_independent_power_accounting();
     const bool matrix = test_bridge_reference_matrix_and_retune();
     const bool concurrency = test_concurrent_same_bridge_references();
     const bool rollback = test_transaction_rollback();
     const bool ambiguity = test_ambiguous_transition_and_cleanup_debt();
     const bool disconnect = test_disconnect_and_surviving_bridge_cleanup();
     const bool adapter = test_production_tuner_adapter_uses_narrow_authority();
-    return validation && matrix && concurrency && rollback && ambiguity &&
+    return validation && independent && matrix && concurrency && rollback && ambiguity &&
            disconnect && adapter;
 }

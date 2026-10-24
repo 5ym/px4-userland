@@ -64,7 +64,6 @@ bool run_control_integration_tests();
 bool run_posix_ipc_tests();
 bool run_posix_tuner_nonce_tests();
 bool run_control_workers_tests();
-bool run_px4_ts_tests();
 bool run_px4ctl_format_tests();
 bool run_px4d_list_format_tests();
 #endif
@@ -3785,7 +3784,6 @@ int main(int argc, char** argv)
         {"posix_ipc_transport", run_posix_ipc_tests},
         {"posix_tuner_nonce", run_posix_tuner_nonce_tests},
         {"control_workers", run_control_workers_tests},
-        {"px4_ts", run_px4_ts_tests},
         {"px4ctl_format", run_px4ctl_format_tests},
         {"px4d_list_format", run_px4d_list_format_tests},
 #endif

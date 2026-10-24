@@ -64,6 +64,7 @@ public:
 
     Result<void> begin_tune(std::uint8_t global_receiver,
                             std::uint8_t voltage) noexcept;
+    Result<void> set_independent_power(bool enabled) noexcept;
     Result<void> commit_tune(std::uint8_t global_receiver) noexcept;
     Result<void> rollback_tune(std::uint8_t global_receiver) noexcept;
     Result<void> release_receiver(std::uint8_t global_receiver) noexcept;
@@ -93,6 +94,7 @@ private:
     bool allow_15v_;
     mutable std::mutex mutex_;
     std::array<ReceiverRequest, 8U> receivers_{};
+    bool independent_15v_ = false;
     std::array<Q3U4LnbPhysicalState, 2U> physical_state_{
         Q3U4LnbPhysicalState::off, Q3U4LnbPhysicalState::off};
     std::array<bool, 2U> cleanup_debt_{{false, false}};

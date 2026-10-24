@@ -455,11 +455,13 @@ mirakc の tuner command では、チャンネル表記をそのまま `--channe
 
 ### `px4ctl`（制御・診断ツール）
 
-デバイスの状態確認や内蔵 IC カードリーダーの操作を行います。
+デバイスの状態確認、内蔵 IC カードリーダー、および対応機種の LNB 電源を操作します。
 
 ```sh
-px4ctl (--device SERIAL | --instance TOKEN) [--runtime-dir PATH] [--group] <サブコマンド>
+px4ctl (--device SELECTOR | --instance TOKEN) [--runtime-dir PATH] [--group] <サブコマンド>
 ```
+
+`--device SELECTOR` は `serial:<SERIAL>` または `usb:<BUS-PORT>[,<BUS-PORT>...]` を指定します。
 
 #### サブコマンド一覧
 
@@ -468,7 +470,8 @@ px4ctl (--device SERIAL | --instance TOKEN) [--runtime-dir PATH] [--group] <サ�
 - `card-status`: 内蔵カードリーダーのカード挿入状態、初期化状態、ATR を表示します。
 - `card-atr`: カードの ATR（Answer to Reset）を取得して表示します。
 - `card-reset`: カードをリセットし、ATR を表示します。
-- `card-apdu HEX [--repeat N]`: コロン区切りの 16 進文字列（1〜4096 バイト、例: `00:a4:00:00`）で指定した APDU をカードへ送信し、応答を表示します。`--repeat N` で送信回数を指定可能です（指定範囲: 1〜100000）。
+- `card-apdu HEX`: コロン区切りの 16 進文字列（1〜4096 バイト、例: `00:a4:00:00`）で指定した APDU をカードへ送信し、応答を表示します。
+- `lnb-on` / `lnb-off`: 対応機種の LNB 電源へ 15 V / 0 V を要求します。`lnb-on`を使う場合は、daemon起動時に`--allow-lnb-power`も指定します。
 
 ## 内蔵 IC カードリーダー
 
@@ -486,7 +489,7 @@ PX-Q3U4 内蔵の IC カードリーダーは `px4d` が管理します。本ソ
 
 > [!CAUTION]
 > **LNB 15V 給電の安全に関する注意**
-> 衛星アンテナ設備への LNB 15V 給電は、配線や他の給電機器（ブースターやテレビなど）との競合を確認した上で行ってください。LNB 給電に対応する機種でも、誤給電を防ぐため、デーモン起動時の `--allow-lnb-power` と受信時の `px4-ts --lnb-voltage 15` の双方を明示した場合に限り 15V を要求できます。
+> 衛星アンテナ設備への LNB 15V 給電は、配線や他の給電機器（ブースターやテレビなど）との競合を確認した上で行ってください。LNB 給電に対応する機種でも、誤給電を防ぐため、`px4ctl lnb-on`にはdaemon起動時の`--allow-lnb-power`が必要です。受信時は、daemon起動時の`--allow-lnb-power`と`px4-ts --lnb-voltage 15`の双方を明示した場合に限り15 Vを要求できます。
 > PX-M1UR と DTV02-1T1S-U / DTV02A-1T1S-U の LNB 15V 給電はサポート対象外です。M1UR の実機開放端測定では、両オプションを指定しても 0V のままでした。DTV02系は未実測ですが、参照 `px4_drv` のLNB setterが無効です。candidate `2f555ff` はこれらT/S兼用機種の15V要求をopt-inの有無によらずGPIO書込み前に拒否します。公開済みv0.1.7でこれらの機種に15V要求を試した場合、修正版へ移行する前にUSBを物理的に抜き差しし、以前の給電状態を持ち越さないでください。給電が必要な設備では外部給電を別途用意してください。
 
 > [!NOTE]

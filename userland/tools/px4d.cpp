@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include "px4d_core_api.h"
+
 #include "px4/card.h"
 #include "px4/card_service.h"
-#include "px4/control_server.h"
 #include "px4/firmware.h"
 #include "px4/it930x.h"
 #include "px4/libusb_transport.h"
@@ -30,23 +31,29 @@
 #include "px4d_list_format.h"
 #include "px4d_signals.h"
 
+#include <dtv/userland/host_listener_context/enclosure_context.h>
+#include <dtv/userland/host_runtime/family.h>
+#include <dtv/userland/records.h>
+
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace {
 
 using namespace px4::userland;
-using namespace px4::userland::ipc::posix;
 
 #if defined(_WIN32)
 using PlatformTunerNonceSource = px4::userland::ipc::windows::WindowsTunerNonceSource;
 #else
-using PlatformTunerNonceSource = PosixTunerNonceSource;
+using PlatformTunerNonceSource = px4::userland::ipc::posix::PosixTunerNonceSource;
 #endif
 
 void usage() noexcept
@@ -159,31 +166,229 @@ void on_stdin_eof(void*) noexcept
 }
 #endif
 
-// Publishes the control/data endpoints and runs the foreground loop until a
-// stop signal or loop failure.  Returns the process exit status.
-int serve(const Px4dArguments& arguments, const std::string& base_serial,
-          CardService& card_service, TunerService& tuner_service,
-          Q3U4StreamDataPlane& stream, std::uint8_t usb_present_mask,
-          std::uint8_t receiver_count, bool dual_system = false) noexcept
-{
-    const char* runtime_directory = arguments.runtime_directory.empty() ?
-                                        nullptr : arguments.runtime_directory.c_str();
-    const char* instance = arguments.instance.empty() ? base_serial.c_str()
-                                                      : arguments.instance.c_str();
-    const EndpointConfig endpoint{
-        runtime_directory, instance, kControlEndpointName,
-        arguments.group ? EndpointAccess::shared_group : EndpointAccess::private_user};
-    auto serial_lease = SerialEndpointLease::acquire(endpoint, base_serial);
-    if (!serial_lease) {
-        std::fprintf(stderr, "serial endpoint: %s\n", error_string(serial_lease.error()));
-        return exit_status(serial_lease.error());
+class Px4CardProtocolAdapter final : public CardProtocolSession {
+public:
+    explicit Px4CardProtocolAdapter(CardSession& session) noexcept : session_(session) {}
+    Result<void> initialize() noexcept override { return session_.initialize(); }
+    Result<std::size_t> transmit(ByteView apdu,
+                                 MutableByteView response) noexcept override
+    {
+        return session_.transmit(apdu, response);
     }
-    auto server = PosixControlServer::create(
-        endpoint, card_service, tuner_service, base_serial, true, usb_present_mask,
-        &stream, receiver_count, dual_system);
-    if (!server) {
-        std::fprintf(stderr, "control endpoint: %s\n", error_string(server.error()));
-        return exit_status(server.error());
+    bool initialized() const noexcept override { return session_.initialized(); }
+    const CardAtrBytes& atr() const noexcept override
+    {
+        const CardAtr& source = session_.atr();
+        atr_.length = source.length;
+        std::copy(source.bytes.begin(), source.bytes.end(), atr_.bytes.begin());
+        return atr_;
+    }
+    void invalidate() noexcept override { session_.invalidate(); }
+
+private:
+    CardSession& session_;
+    mutable CardAtrBytes atr_{};
+};
+
+class Px4EnclosureFamily final : public dtv::userland::host_runtime::EnclosureFamily {
+public:
+    Px4EnclosureFamily(TunerServiceBackend& tuner_backend,
+                       CardServiceBackend& card_backend,
+                       CardProtocolSession& card_protocol,
+                       TunerServiceTime& time,
+                       Q3U4StreamDataPlane& stream) noexcept
+        : tuner_backend_(tuner_backend), card_backend_(card_backend),
+          card_protocol_(card_protocol), time_(time), stream_(stream)
+    {
+    }
+
+    Result<void> shutdown() noexcept override { return stream_.shutdown(); }
+    TunerServiceBackend& tuner_backend() noexcept override { return tuner_backend_; }
+    CardServiceBackend& card_backend() noexcept override { return card_backend_; }
+    CardProtocolSession& card_protocol() noexcept override { return card_protocol_; }
+    TunerServiceTime& time() noexcept override { return time_; }
+    TunerStreamControl* stream_control() noexcept override { return &stream_; }
+
+private:
+    TunerServiceBackend& tuner_backend_;
+    CardServiceBackend& card_backend_;
+    CardProtocolSession& card_protocol_;
+    TunerServiceTime& time_;
+    Q3U4StreamDataPlane& stream_;
+};
+
+template <std::size_t N>
+bool set_wire_text(dtv::userland::wire::WString<N>& target,
+                   std::string_view value) noexcept
+{
+    if (value.size() > N) return false;
+    target.length = static_cast<std::uint16_t>(value.size());
+    std::copy(value.begin(), value.end(), target.bytes.begin());
+    return true;
+}
+
+std::string usb_path(const UsbLocation& location)
+{
+    if (!location.has_bus || location.port_count == 0U) return {};
+    std::string value = std::to_string(location.bus);
+    for (std::size_t index = 0U; index < location.port_count; ++index) {
+        value.push_back(index == 0U ? '-' : '.');
+        value += std::to_string(location.port_path[index]);
+    }
+    return value;
+}
+
+dtv::userland::wire::ListResponse make_canonical_list(
+    const DeviceProfile& profile, std::string_view base_serial,
+    std::uint8_t bridge_count, bool dual_system, bool serial_unique,
+    const Q3U4Runtime& runtime,
+    const dtv::userland::wire::Epoch& epoch,
+    const dtv::userland::wire::Producer& producer) noexcept
+{
+    namespace wire = dtv::userland::wire;
+    wire::ListResponse list;
+    list.epoch = epoch;
+    list.producer = producer;
+    list.snapshot.sequence = 1U;
+    list.topology.state = wire::TopologyState::complete;
+    list.topology.expected_function_count.present = true;
+    list.topology.expected_function_count.value = bridge_count;
+    list.enclosure.present = true;
+    list.enclosure.value.id = 0U;
+    list.enclosure.value.model.present = true;
+    (void)set_wire_text(list.enclosure.value.model.value.name, profile.name);
+    list.enclosure.value.identity.serial_state = wire::IdentitySerialState::present;
+    list.enclosure.value.identity.serial.present = true;
+    (void)set_wire_text(list.enclosure.value.identity.serial.value, base_serial);
+    list.enclosure.value.identity.uniqueness = serial_unique
+        ? wire::Uniqueness::unique_in_scan : wire::Uniqueness::unknown;
+    list.enclosure.value.limits.max_concurrent_streams.present = true;
+    list.enclosure.value.limits.max_concurrent_streams.value = profile.receiver_count;
+
+    list.functions.count = bridge_count;
+    for (std::uint8_t index = 0U; index < bridge_count; ++index) {
+        auto& function = list.functions.items[index];
+        function.id = static_cast<std::uint16_t>(index + 1U);
+        function.vid = kQ3U4VendorId;
+        function.pid = profile.product_id;
+        function.mode = wire::Mode::runtime;
+        function.serial_state = wire::SerialState::present;
+        std::string function_serial(base_serial);
+        if (bridge_count == 2U) function_serial.push_back(static_cast<char>('1' + index));
+        function.serial.present = true;
+        (void)set_wire_text(function.serial.value, function_serial);
+        function.model.present = true;
+        (void)set_wire_text(function.model.value.name, profile.name);
+        function.identification_reason = wire::IdentificationReason::none;
+        function.present = true;
+        const UsbLocation location = runtime.usb_location(index);
+        if (location.has_bus) {
+            function.location.bus.present = true;
+            function.location.bus.value = location.bus;
+        }
+        if (location.has_address) {
+            function.location.address.present = true;
+            function.location.address.value = location.address;
+        }
+        const std::string path = usb_path(location);
+        if (!path.empty()) {
+            function.location.usb_path.present = true;
+            (void)set_wire_text(function.location.usb_path.value, path);
+        }
+    }
+
+    const auto records = ipc::receiver_records(profile.receiver_count, dual_system);
+    if (records) {
+        list.receivers.present = true;
+        list.receivers.value.count = profile.receiver_count;
+        for (std::uint8_t index = 0U; index < profile.receiver_count; ++index) {
+            const auto& record = records.value()[index];
+            auto& receiver = list.receivers.value.items[index];
+            receiver.id = record.global_id;
+            receiver.systems.mask = record.system == ipc::System::ISDB_T ? 1U :
+                                    record.system == ipc::System::ISDB_S ? 2U : 3U;
+            receiver.binding.present = true;
+            receiver.binding.value.function_id = record.dev_id;
+            receiver.binding.value.local_id = record.local_id;
+            receiver.capabilities.measurement_mask = wire::kMetricMaskLock;
+            if (profile.supports_lnb_15v && record.system != ipc::System::ISDB_T) {
+                receiver.capabilities.controls |= wire::kControlBitLnb;
+                receiver.capabilities.lnb.values.count = 2U;
+                receiver.capabilities.lnb.values.items[0U] = 0U;
+                receiver.capabilities.lnb.values.items[1U] = 15U;
+            }
+        }
+    }
+    list.readers.present = true;
+    list.readers.value.count = 1U;
+    list.readers.value.items[0U].id = 0U;
+    list.readers.value.items[0U].binding.present = true;
+    list.readers.value.items[0U].binding.value.function_id = 1U;
+    list.readers.value.items[0U].binding.value.local_id = 0U;
+    return list;
+}
+
+int serve_core(const Px4dArguments& arguments, const std::string& base_serial,
+               DeviceModel model, const Q3U4Runtime& runtime,
+               TunerServiceBackend& tuner_backend,
+               CardServiceBackend& card_backend, CardProtocolSession& card_protocol,
+               TunerServiceTime& time, Q3U4StreamDataPlane& stream,
+               std::uint8_t bridge_count, bool dual_system = false) noexcept
+{
+    namespace listener = dtv::userland::host_listener_context;
+    namespace host = dtv::userland::host_runtime;
+    namespace wire = dtv::userland::wire;
+    auto nonce_source = std::make_unique<PlatformTunerNonceSource>();
+    const auto epoch_seed = nonce_source->generate();
+    if (!epoch_seed) return exit_status(epoch_seed.error());
+    const wire::Epoch epoch = epoch_seed.value();
+    wire::Producer producer;
+    (void)set_wire_text(producer.product, "px4-userland");
+    (void)set_wire_text(producer.version, PX4_USERLAND_PRODUCT_VERSION);
+
+    listener::ContextConfig config;
+    config.runtime_directory = arguments.runtime_directory;
+    config.product = "px4-userland";
+    config.instance = arguments.instance.empty() ? base_serial : arguments.instance;
+    config.access = arguments.group ? host::EndpointAccess::shared_group
+                                    : host::EndpointAccess::private_user;
+    config.server.epoch = epoch;
+    config.server.producer = producer;
+    config.server.features = wire::kFeatureStateEvent | wire::kFeatureCardService |
+                             wire::kFeaturePidFilter;
+    config.canonical_list = make_canonical_list(
+        device_profile(model), base_serial, bridge_count, dual_system,
+        px4d_open_mode(arguments) == Px4dOpenMode::native &&
+            arguments.usb_path_count == 0U,
+        runtime,
+        epoch, producer);
+    config.context.epoch = epoch;
+    config.context.instance.present = true;
+    (void)set_wire_text(config.context.instance.value, config.instance);
+    for (std::size_t index = 0U; index < 8U; ++index)
+        config.stream_engine_epoch |= static_cast<std::uint64_t>(epoch[index]) << (index * 8U);
+    if (config.stream_engine_epoch == 0U) config.stream_engine_epoch = 1U;
+    config.stream_arm_budget_ms = 5000U;
+
+    auto family = std::make_unique<Px4EnclosureFamily>(
+        tuner_backend, card_backend, card_protocol, time, stream);
+    auto context = listener::EnclosureContext::assemble(
+        std::move(family), std::move(nonce_source), config);
+    if (!context) {
+        std::fprintf(stderr, "Core enclosure context: %s\n", error_string(context.error()));
+        return exit_status(context.error());
+    }
+    const auto reserved = context.value()->reserve_namespace();
+    if (!reserved) {
+        std::fprintf(stderr, "Core endpoint reservation: %s\n",
+                     error_string(reserved.error()));
+        return exit_status(reserved.error());
+    }
+    const auto published = context.value()->publish();
+    if (!published) {
+        std::fprintf(stderr, "Core endpoint publication: %s\n",
+                     error_string(published.error()));
+        return exit_status(published.error());
     }
     if (!px4::userland::px4d::install_signal_handlers()) {
         std::fprintf(stderr, "signal setup failed\n");
@@ -197,33 +402,28 @@ int serve(const Px4dArguments& arguments, const std::string& base_serial,
         return 70;
     }
 #endif
-
-#if defined(_WIN32)
-    std::fprintf(stderr, "px4d ready: device=%s endpoint=%ls\n",
-                 base_serial.c_str(), server.value()->endpoint_path());
-#else
-    std::fprintf(stderr, "px4d ready: device=%s endpoint=%s\n",
-                 base_serial.c_str(), server.value()->endpoint_path());
-#endif
+    std::fprintf(stderr, "px4d ready: device=%s\n", base_serial.c_str());
     Error loop_error = Error::OK;
     while (!px4::userland::px4d::stop_requested()) {
-        const auto polled = server.value()->poll_once(Timeout{100U});
+        const auto polled = context.value()->poll_once(Timeout{100U});
         if (!polled) {
+            std::fprintf(stderr, "Core context poll: %s\n", error_string(polled.error()));
             loop_error = polled.error();
             break;
         }
     }
-    const auto cleanup = server.value()->shutdown();
-    if (!cleanup) {
-        std::fprintf(stderr, "shutdown cleanup: %s\n", error_string(cleanup.error()));
-        if (loop_error == Error::OK) loop_error = cleanup.error();
+    for (;;) {
+        const auto closed = context.value()->close(Timeout{100U});
+        if (!closed) {
+            std::fprintf(stderr, "Core context cleanup: %s\n",
+                         error_string(closed.error()));
+            if (loop_error == Error::OK) loop_error = closed.error();
+            break;
+        }
+        if (closed.value() == listener::CloseState::quiesced) break;
     }
 #if defined(_WIN32)
     eof_monitor.stop();
-    // Release the serial namespace lease before advertising cleanup so a
-    // console/termination handler cannot let the process exit while the
-    // private endpoint namespace is still held.
-    (void)serial_lease.value().close();
     px4::userland::px4d::notify_cleanup_complete();
 #endif
     if (loop_error != Error::OK) {
@@ -264,24 +464,20 @@ int run_q3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     Q3U4CardBackend backend(dev1, enclosure);
     It930xCardHardware card_hardware(dev1);
     CardSession card_session(card_hardware, time);
-    NativeCardProtocolSession protocol(card_session);
-    CardService card_service(backend, protocol);
+    Px4CardProtocolAdapter protocol(card_session);
     It930xLnbPower dev1_lnb(dev1);
     It930xLnbPower dev2_lnb(dev2);
     Q3U4LnbPowerCoordinator lnb_power(
         dev1_lnb, dev2_lnb,
         arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     Q3U4FrontendTunerBackend tuner_backend(enclosure, lnb_power);
-    PlatformTunerNonceSource nonce_source;
     const auto stream = Q3U4StreamDataPlane::create(runtime.dev1(), runtime.dev2());
     if (!stream) {
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    TunerService tuner_service(tuner_backend, nonce_source, time, nullptr, nullptr,
-                               stream.value().get());
-    return serve(arguments, base_serial, card_service, tuner_service, *stream.value(),
-                 0x03U, ipc::kQ3U4ReceiverCount);
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
+                      backend, protocol, time, *stream.value(), 2U);
 }
 
 // PX-W3U4 has no second bridge.  The Q3U4 coordinator still describes two
@@ -331,6 +527,24 @@ public:
     {
         return inner_.tune_satellite(receiver, frequency_khz, timeout_ms);
     }
+    Result<TunerHzProgramming> tune_terrestrial_hz(
+        std::uint8_t receiver, std::uint64_t frequency_hz,
+        std::uint32_t timeout_ms) noexcept override
+    {
+        return inner_.tune_terrestrial_hz(receiver, frequency_hz, timeout_ms);
+    }
+    Result<TunerHzProgramming> tune_satellite_hz(
+        std::uint8_t receiver, std::uint64_t frequency_hz,
+        std::uint32_t timeout_ms) noexcept override
+    {
+        return inner_.tune_satellite_hz(receiver, frequency_hz, timeout_ms);
+    }
+    TunerStrictProfile strict_profile(std::uint8_t receiver,
+                                      ipc::System system) const noexcept override
+    {
+        return receiver_supports(receiver, system)
+            ? inner_.strict_profile(receiver, system) : TunerStrictProfile{};
+    }
     Result<bool> is_locked(std::uint8_t receiver, ipc::System system) noexcept override
     {
         return inner_.is_locked(receiver, system);
@@ -370,6 +584,16 @@ public:
     {
         return inner_.rollback_tune_power(receiver);
     }
+#if defined(PX4_USERLAND_CORE_DAEMON_API)
+    Result<void> set_independent_lnb_power(bool enabled) noexcept override
+    {
+        return inner_.set_independent_lnb_power(enabled);
+    }
+    dtv::userland::wire::Optional<bool> independent_lnb_power_state() noexcept override
+    {
+        return inner_.independent_lnb_power_state();
+    }
+#endif
     void mark_receiver_disconnected(std::uint8_t receiver) noexcept override
     {
         inner_.mark_receiver_disconnected(receiver);
@@ -401,23 +625,19 @@ int run_w3u4(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     Q3U4CardBackend backend(device, enclosure);
     It930xCardHardware card_hardware(device);
     CardSession card_session(card_hardware, time);
-    NativeCardProtocolSession protocol(card_session);
-    CardService card_service(backend, protocol);
+    Px4CardProtocolAdapter protocol(card_session);
     It930xLnbPower lnb(device);
     Q3U4LnbPowerCoordinator lnb_power(
         lnb, lnb,
         arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     W3U4TunerBackend tuner_backend(enclosure, lnb_power);
-    PlatformTunerNonceSource nonce_source;
     const auto stream = Q3U4StreamDataPlane::create_w3u4(runtime.dev1());
     if (!stream) {
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    TunerService tuner_service(tuner_backend, nonce_source, time, nullptr, nullptr,
-                               stream.value().get());
-    return serve(arguments, base_serial, card_service, tuner_service, *stream.value(),
-                 0x01U, ipc::kW3U4ReceiverCount);
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
+                      backend, protocol, time, *stream.value(), 1U);
 }
 
 int run_mlt5pe(const Px4dArguments& arguments, Q3U4Runtime& runtime,
@@ -442,23 +662,20 @@ int run_mlt5pe(const Px4dArguments& arguments, Q3U4Runtime& runtime,
     Mlt5PeCardBackend backend(device, frontend);
     It930xCardHardware card_hardware(device);
     CardSession card_session(card_hardware, time);
-    NativeCardProtocolSession protocol(card_session);
-    CardService card_service(backend, protocol);
+    Px4CardProtocolAdapter protocol(card_session);
     It930xLnbPower lnb(device);
     Mlt5PeLnbPowerCoordinator lnb_power(
         lnb, arguments.allow_lnb_power && device_profile(runtime.model()).supports_lnb_15v);
     Mlt5PeTunerBackend tuner_backend(frontend, lnb_power, receiver_count,
                                      satellite_supported, runtime.model());
-    PlatformTunerNonceSource nonce_source;
     const auto stream = Q3U4StreamDataPlane::create_mlt_family(runtime.dev1(), runtime.model());
     if (!stream) {
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    TunerService tuner_service(tuner_backend, nonce_source, time, nullptr, nullptr,
-                               stream.value().get());
-    return serve(arguments, base_serial, card_service, tuner_service, *stream.value(),
-                 0x01U, receiver_count, satellite_supported || receiver_count > 1U);
+    return serve_core(arguments, base_serial, runtime.model(), runtime, tuner_backend,
+                      backend, protocol, time, *stream.value(), 1U,
+                      satellite_supported || receiver_count > 1U);
 }
 
 int run_single_receiver(const Px4dArguments& arguments, Q3U4Runtime& runtime,
@@ -477,18 +694,15 @@ int run_single_receiver(const Px4dArguments& arguments, Q3U4Runtime& runtime,
                                     arguments.allow_lnb_power);
     It930xCardHardware card_hardware(device);
     CardSession card_session(card_hardware, time);
-    NativeCardProtocolSession protocol(card_session);
-    CardService card_service(frontend, protocol);
-    PlatformTunerNonceSource nonce_source;
+    Px4CardProtocolAdapter protocol(card_session);
     const auto stream = Q3U4StreamDataPlane::create_single_receiver(runtime.dev1(), runtime.model());
     if (!stream) {
         std::fprintf(stderr, "stream data plane: %s\n", error_string(stream.error()));
         return exit_status(stream.error());
     }
-    TunerService tuner_service(frontend, nonce_source, time, nullptr, nullptr, stream.value().get());
     const bool dual = device_profile(runtime.model()).dual_system;
-    return serve(arguments, base_serial, card_service, tuner_service, *stream.value(),
-                 0x01U, 1U, dual);
+    return serve_core(arguments, base_serial, runtime.model(), runtime, frontend,
+                      frontend, protocol, time, *stream.value(), 1U, dual);
 }
 
 }  // namespace

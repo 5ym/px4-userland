@@ -20,7 +20,9 @@
 
 namespace px4::userland {
 
+#ifndef DTV_USERLAND_HOST_DAEMON_CARD_SERVICE_H
 inline constexpr std::size_t kCardAtrMaxLength = 33U;
+#endif
 
 enum class CardEdc : std::uint8_t {
     lrc = 0,

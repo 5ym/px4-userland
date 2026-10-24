@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include "px4_ts_core.h"
-#include "px4_ts_posix.h"
+#include <dtv/host_ts/px4_ts_core.h>
+#include <dtv/host_ts/px4_ts_posix.h>
+#include "px4/identity.h"
 
 #include <cerrno>
 #include <chrono>
@@ -17,6 +18,34 @@ namespace {
 
 using namespace px4::userland;
 using namespace px4::userland::cli;
+
+bool matches_px4_serial_identity(
+    const dtv::userland::wire::ListResponse& list,
+    const dtv::userland::identity::ResolvedIdentity& expected) noexcept
+{
+    if (!list.enclosure.present || expected.kind !=
+            dtv::userland::identity::IdentityKind::serial ||
+        list.enclosure.value.identity.uniqueness !=
+            dtv::userland::wire::Uniqueness::unique_in_scan ||
+        list.functions.count == 0U)
+        return false;
+    const auto& observed = list.enclosure.value.identity;
+    const px4::userland::DeviceProfile* profile =
+        px4::userland::device_profile_for_usb_id(
+            list.functions.items[0U].vid, list.functions.items[0U].pid);
+    if (profile == nullptr) return false;
+    for (std::size_t index = 1U; index < list.functions.count; ++index) {
+        const px4::userland::DeviceProfile* other =
+            px4::userland::device_profile_for_usb_id(
+                list.functions.items[index].vid, list.functions.items[index].pid);
+        if (other == nullptr || other->model != profile->model) return false;
+    }
+    return observed.serial_state == dtv::userland::wire::IdentitySerialState::present &&
+           observed.serial.present &&
+           observed.serial.value.length == expected.serial.length &&
+           std::memcmp(observed.serial.value.bytes.data(), expected.serial.bytes.data(),
+                       expected.serial.length) == 0;
+}
 
 volatile std::sig_atomic_t stop_flag = 0;
 
@@ -79,15 +108,22 @@ void print_counters(const char* label, const ipc::CountersPayload& counters) noe
 
 int main(int argc, char** argv)
 {
+    static const TsClientProfile profile{
+        "px4-ts", "px4-userland", dtv::userland::identity::Product::px4, true, false,
+        &matches_px4_serial_identity};
     const Px4TsArguments arguments =
-        parse_px4_ts_arguments(argc, const_cast<const char* const*>(argv));
+        parse_px4_ts_product_arguments(argc, const_cast<const char* const*>(argv), profile);
     if (!arguments.valid) {
         std::fprintf(stderr, "argument error: %s\n", arguments.error.c_str());
-        print_px4_ts_usage(stderr);
+        print_px4_ts_usage(profile, stderr);
         return 2;
     }
     if (arguments.help) {
-        print_px4_ts_usage(stdout);
+        print_px4_ts_usage(profile, stdout);
+        return 0;
+    }
+    if (arguments.version) {
+        std::printf("px4-ts %s\n", PX4_USERLAND_PRODUCT_VERSION);
         return 0;
     }
     if (!install_signals()) {
@@ -112,8 +148,8 @@ int main(int argc, char** argv)
     PosixSignal signal;
     Px4TsFailureKind failure_kind = Px4TsFailureKind::ipc;
     Px4TsRunDiagnostics diagnostics;
-    const auto result = Px4TsRunner::run(arguments, output, clock, signal,
-                                         &failure_kind, &diagnostics);
+    const auto result = Px4TsRunner::run_wire(arguments, profile, output, clock, signal,
+                                              &failure_kind, &diagnostics);
     if (!result) {
         std::fprintf(stderr, "px4-ts: %s\n", error_string(result.error()));
         std::fprintf(stderr, "written packets=%llu bytes=%llu\n",
