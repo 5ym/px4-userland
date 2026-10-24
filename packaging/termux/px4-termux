@@ -102,10 +102,11 @@ case "$stage" in
                 exit 0
                 ;;
             --version)
-                [ "$#" -eq 1 ] && [ "$usb_device_count" -eq 0 ] &&
-                    [ -z "$firmware$device$instance$runtime_dir" ] &&
-                    [ "$group" -eq 0 ] && [ "$allow_lnb_power" -eq 0 ] ||
+                if [ "$#" -ne 1 ] || [ "$usb_device_count" -ne 0 ] ||
+                    [ -n "$firmware$device$instance$runtime_dir" ] ||
+                    [ "$group" -ne 0 ] || [ "$allow_lnb_power" -ne 0 ]; then
                     fail '--version cannot be combined with other arguments'
+                fi
                 product_version='@PX4_PROJECT_VERSION@'
                 case "$product_version" in
                 @*)
