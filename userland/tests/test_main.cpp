@@ -18,6 +18,7 @@
 #include "it930x_test_access.h"
 #include "it930x_probe_args.h"
 #include "q3u4_power.h"
+#include "px4d_list_format.h"
 #include "single_receiver_frontend.h"
 
 #if PX4_ENABLE_LIBUSB
@@ -56,6 +57,7 @@ bool run_it930x_card_tests();
 bool run_ipc_tests();
 bool run_ipc_state_tests();
 bool run_px4d_args_tests();
+bool run_px4d_list_format_tests();
 #if !defined(_WIN32)
 bool run_px4d_signal_tests();
 #endif
@@ -65,7 +67,6 @@ bool run_posix_ipc_tests();
 bool run_posix_tuner_nonce_tests();
 bool run_control_workers_tests();
 bool run_px4ctl_format_tests();
-bool run_px4d_list_format_tests();
 #endif
 bool run_q3u4_frontend_tests();
 bool run_q3u4_card_backend_tests();
@@ -1829,6 +1830,7 @@ struct FakeDevice final {
     DeviceObservation observation;
     std::uint8_t serial_index = 1U;
     int serial_result = 0;
+    int info_result = 0;
 };
 
 struct FakeHandle final {
@@ -2020,6 +2022,7 @@ public:
             return LIBUSB_ERROR_INVALID_PARAM;
         }
         const auto* fake = static_cast<FakeDevice*>(device);
+        if (fake->info_result != 0) return fake->info_result;
         *observation = fake->observation;
         *serial_index = fake->serial_index;
         return 0;
@@ -3228,7 +3231,7 @@ bool test_fd_enclosure_batch()
 
 bool test_native_enumeration_reports_unopened_devices()
 {
-    // `px4d --list` shows why a supported device is missing from the
+    // `px4d --list-json` shows why a supported device is missing from the
     // enclosures.  A root-owned USB node must read as open_failed, not as a
     // bad serial derived from the string that could not be read.
     auto api = std::unique_ptr<FakeApi>(new FakeApi);
@@ -3258,6 +3261,20 @@ bool test_native_enumeration_reports_unopened_devices()
     CHECK(readable.value().groups.size() == 1U);
     CHECK(readable.value().groups[0U].base_serial == "00000000000076");
     CHECK(readable.value().groups[0U].status == GroupStatus::ready);
+    CHECK(readable.value().complete);
+
+    auto partial_api = std::unique_ptr<FakeApi>(new FakeApi);
+    FakeDevice unavailable = fake_device("00000000000077", 1U);
+    unavailable.info_result = LIBUSB_ERROR_IO;
+    partial_api->devices = {&readable_first, &readable_second, &unavailable};
+    const auto partial = RuntimeTestAccess::enumerate_native(std::move(partial_api));
+    CHECK(partial && !partial.value().complete);
+    CHECK(partial.value().groups.size() == 1U);
+    const auto json = tools::format_device_list_json(partial.value(), "fixture-version");
+    CHECK(json);
+    CHECK(json.value().find("\"complete\":false") != std::string::npos);
+    CHECK(json.value().find("\"serial_unique\":null") != std::string::npos);
+    CHECK(json.value().find("usb_descriptor_unavailable") != std::string::npos);
     return true;
 }
 
@@ -3776,6 +3793,7 @@ int main(int argc, char** argv)
         {"ipc_wire_codec", run_ipc_tests},
         {"ipc_connection_state", run_ipc_state_tests},
         {"px4d_arguments", run_px4d_args_tests},
+        {"px4d_list_format", run_px4d_list_format_tests},
 #if !defined(_WIN32)
         {"px4d_signals", run_px4d_signal_tests},
 #endif
@@ -3785,7 +3803,6 @@ int main(int argc, char** argv)
         {"posix_tuner_nonce", run_posix_tuner_nonce_tests},
         {"control_workers", run_control_workers_tests},
         {"px4ctl_format", run_px4ctl_format_tests},
-        {"px4d_list_format", run_px4d_list_format_tests},
 #endif
         {"q3u4_frontend_lifecycle", run_q3u4_frontend_tests},
         {"q3u4_card_backend", run_q3u4_card_backend_tests},

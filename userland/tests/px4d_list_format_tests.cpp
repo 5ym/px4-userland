@@ -100,8 +100,13 @@ bool test_rejected_devices_of_supported_models_only()
 bool test_nothing_connected_prints_nothing()
 {
     CHECK(tools::format_device_list(GroupingResult{}).empty());
-    CHECK(tools::format_device_list_json(GroupingResult{}) ==
-          "{\"enclosures\":[],\"ungrouped_usb_devices\":[]}\n");
+    const auto json = tools::format_device_list_json(GroupingResult{}, "fixture-version");
+    CHECK(json);
+    CHECK(json.value() ==
+          "{\"schema\":{\"name\":\"userland.discovery\",\"major\":1,\"minor\":0},"
+          "\"producer\":{\"product\":\"px4-userland\",\"version\":\"fixture-version\"},"
+          "\"scan\":{\"complete\":true,\"issues\":[]},"
+          "\"enclosures\":[],\"ungrouped_usb_devices\":[]}\n");
     return true;
 }
 
@@ -153,12 +158,19 @@ bool test_location_collision_and_duplicate_candidates()
     CHECK(text.find("candidate3_device=2 candidate3_bus=1 candidate3_address=10 "
                     "candidate3_port=1-3.3") != std::string::npos);
 
-    const std::string json = tools::format_device_list_json(grouping);
-    CHECK(json.find("\"serial_unique\":false,\"devices\":[{\"device\":1,"
+    const auto formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    const std::string& json = formatted.value();
+    CHECK(json.find("\"serial_unique\":false,\"status\":\"ready\"") != std::string::npos);
+    CHECK(json.find("\"devices\":[{\"id\":1,\"usb\":\"0511:0854\","
                     "\"serial\":\"000000000000001\",\"bus\":1,\"address\":6,"
-                    "\"port\":\"1-2.3\"}],\"candidates\":[]") != std::string::npos);
-    CHECK(json.find("\"status\":\"duplicate\",\"serial_unique\":false,"
-                    "\"devices\":[],\"candidates\":[{\"device\":1") != std::string::npos);
+                    "\"port\":\"1-2.3\",\"receivers\":[{\"receiver\":0,\"device\":1,"
+                    "\"local\":0,\"systems\":[\"ISDB-T\",\"ISDB-S\"]}]}],\"candidates\":[]")
+          != std::string::npos);
+    CHECK(json.find("\"serial_unique\":false,\"status\":\"duplicate\","
+                    "\"lnb_15v_supported\":true,\"devices\":[],"
+                    "\"candidates\":[{\"device\":1") != std::string::npos);
+    CHECK(json.find("\"system\":") == std::string::npos);
     CHECK(json.back() == '\n' && json.find('\n') == json.size() - 1U);
     return true;
 }
@@ -175,9 +187,11 @@ bool test_ready_serial_colliding_with_incomplete_is_not_unique()
                     "serial_unique=false\n") != std::string::npos);
     CHECK(text.find("model=PX-Q3U4 usb=0511:084a status=incomplete receivers=8 "
                     "serial_unique=false\n") != std::string::npos);
-    const std::string json = tools::format_device_list_json(grouping);
-    CHECK(json.find("\"status\":\"ready\",\"serial_unique\":false") != std::string::npos);
-    CHECK(json.find("\"status\":\"incomplete\",\"serial_unique\":false") != std::string::npos);
+    const auto formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    const std::string& json = formatted.value();
+    CHECK(json.find("\"serial_unique\":false,\"status\":\"ready\"") != std::string::npos);
+    CHECK(json.find("\"serial_unique\":false,\"status\":\"incomplete\"") != std::string::npos);
     return true;
 }
 
@@ -194,13 +208,63 @@ bool test_json_rejected_null_and_escaping()
         rejected(kQ3U4ProductId, "\xc3\xa9", ObservationStatus::invalid_serial));
     grouping.rejected.push_back(rejected(kPxMlt5PeProductId, "", ObservationStatus::open_failed));
     grouping.rejected.push_back(rejected(0x084eU, "ignored", ObservationStatus::unsupported));
-    const std::string json = tools::format_device_list_json(grouping);
-    CHECK(json.find("\"serial\":\"x\\\"\\\\\\u000a\"") != std::string::npos);
+    const auto formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    const std::string& json = formatted.value();
+    CHECK(json.find("\"serial\":\"x\\\"\\\\\\n\"") != std::string::npos);
     CHECK(json.find("\"bus\":2,\"address\":null,\"port\":null") != std::string::npos);
     CHECK(json.find("\"serial\":null,\"model\":\"PX-MLT5PE\"") != std::string::npos);
-    CHECK(json.find("\"serial\":\"bad\\ufffd\"") != std::string::npos);
+    CHECK(json.find("bad") == std::string::npos);
+    CHECK(json.find("\"serial\":null,\"model\":\"PX-Q3U4\"") != std::string::npos);
     CHECK(json.find("\"serial\":\"\xc3\xa9\"") != std::string::npos);
     CHECK(json.find("ignored") == std::string::npos);
+    CHECK(json.find("\"complete\":false") != std::string::npos);
+    CHECK(json.find("\"readers\":") == std::string::npos);
+    CHECK(json.find("\"receivers\":") == std::string::npos);
+    return true;
+}
+
+bool test_json_observed_devices_and_unknown_scan()
+{
+    GroupingResult grouping;
+    Q3U4Group paired = group("00001205000960", DeviceModel::px_q3u4, GroupStatus::ready);
+    paired.devices[0U] = observation(kQ3U4ProductId, "000012050009601", 1U, 8U, {3U, 1U});
+    paired.devices[1U] = observation(kQ3U4ProductId, "000012050009602", 1U, 9U, {3U, 2U});
+    grouping.groups.push_back(paired);
+    auto formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    const std::string& json = formatted.value();
+    CHECK(json.find("\"serial_unique\":true,\"status\":\"ready\"") != std::string::npos);
+    CHECK(json.find("\"lnb_15v_supported\":true,\"readers\":[{\"reader\":0,\"device\":1}]")
+          != std::string::npos);
+    CHECK(json.find("\"receiver\":3,\"device\":1,\"local\":3,\"systems\":[\"ISDB-T\"]}]}"
+                    ",{\"id\":2,\"usb\":\"0511:084a\"") != std::string::npos);
+    CHECK(json.find("\"receiver\":4,\"device\":2,\"local\":0,\"systems\":[\"ISDB-S\"]")
+          != std::string::npos);
+    CHECK(json.find("\"receiver\":7,\"device\":2,\"local\":3,\"systems\":[\"ISDB-T\"]}]}]"
+                    ",\"candidates\":[]") != std::string::npos);
+
+    grouping.groups[0U].devices[0U].reset();
+    grouping.groups[0U].status = GroupStatus::incomplete;
+    formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    CHECK(formatted.value().find("\"serial_unique\":true,\"status\":\"incomplete\"")
+          != std::string::npos);
+    CHECK(formatted.value().find("\"devices\":[{\"id\":2") != std::string::npos);
+    CHECK(formatted.value().find("\"receiver\":0") == std::string::npos);
+    CHECK(formatted.value().find("\"readers\":") == std::string::npos);
+
+    grouping.complete = false;
+    formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    CHECK(formatted.value().find("\"complete\":false") != std::string::npos);
+    CHECK(formatted.value().find("\"serial_unique\":null") != std::string::npos);
+    grouping.groups.push_back(grouping.groups[0U]);
+    formatted = tools::format_device_list_json(grouping, "fixture-version");
+    CHECK(formatted);
+    CHECK(formatted.value().find("\"serial_unique\":false") != std::string::npos);
+    CHECK(formatted.value().find("\"serial_unique\":null") == std::string::npos);
+    CHECK(!tools::format_device_list_json(grouping, std::string(65U, 'v')));
     return true;
 }
 
@@ -240,5 +304,6 @@ bool run_px4d_list_format_tests()
            test_location_collision_and_duplicate_candidates() &&
            test_ready_serial_colliding_with_incomplete_is_not_unique() &&
            test_json_rejected_null_and_escaping() &&
+           test_json_observed_devices_and_unknown_scan() &&
            test_models_are_a_static_name_and_usb_id_table();
 }

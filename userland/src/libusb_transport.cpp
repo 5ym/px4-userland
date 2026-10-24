@@ -642,6 +642,7 @@ LibusbSession::~LibusbSession() noexcept
 void DeviceDiscovery::clear() noexcept
 {
     candidates_.clear();
+    complete_ = true;
     if (api_ != nullptr && list_ != nullptr) {
         api_->free_device_list(list_);
     }
@@ -673,6 +674,7 @@ Result<GroupingResult> group_discovery(const DeviceDiscovery& discovery) noexcep
     for (RejectedObservation& rejected : unopened) {
         grouping.value().rejected.push_back(std::move(rejected));
     }
+    grouping.value().complete = discovery.complete();
     return grouping;
 }
 
@@ -693,6 +695,7 @@ Result<void> NativeEnumerator::discover(DeviceDiscovery& discovery) noexcept
         std::uint8_t serial_index = 0U;
         const int info_result = api_.get_device_info(device, &observation, &serial_index);
         if (info_result != 0) {
+            discovery.complete_ = false;
             continue;
         }
         if (device_profile_for_usb_id(observation.vendor_id, observation.product_id) ==

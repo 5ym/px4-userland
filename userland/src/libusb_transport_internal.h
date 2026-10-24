@@ -169,6 +169,7 @@ public:
     DeviceDiscovery(const DeviceDiscovery&) = delete;
     DeviceDiscovery& operator=(const DeviceDiscovery&) = delete;
     const std::vector<DeviceCandidate>& candidates() const noexcept { return candidates_; }
+    bool complete() const noexcept { return complete_; }
 
 private:
     friend class NativeEnumerator;
@@ -176,6 +177,7 @@ private:
     LibusbApi* api_ = nullptr;
     void* list_ = nullptr;
     std::vector<DeviceCandidate> candidates_;
+    bool complete_ = true;
 };
 
 // Serialize synchronous command transactions across the two Q3U4 bridges.

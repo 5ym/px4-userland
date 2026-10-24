@@ -176,6 +176,7 @@ struct Q3U4Group final {
 struct GroupingResult final {
     std::vector<Q3U4Group> groups;
     std::vector<RejectedObservation> rejected;
+    bool complete = true;
 };
 
 Result<GroupingResult> group_q3u4_devices(const std::vector<DeviceObservation>& observations) noexcept;

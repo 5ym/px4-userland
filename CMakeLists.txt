@@ -481,6 +481,7 @@ if(WIN32)
             px4_userland_host_backends
             px4_userland_host_libusb_transport
             dtv::host_listener_context
+            dtv::json
             shell32
         )
         target_include_directories(px4d PRIVATE
@@ -540,6 +541,8 @@ if(WIN32)
             userland/tests/ipc_state_tests.cpp
             userland/tests/mlt5pe_tests.cpp
             userland/tests/px4d_args_tests.cpp
+            userland/tools/px4d_list_format.cpp
+            userland/tests/px4d_list_format_tests.cpp
             userland/tests/q3u4_frontend_tests.cpp
             userland/tests/q3u4_card_backend_tests.cpp
             userland/tests/q3u4_power_tests.cpp
@@ -562,6 +565,7 @@ if(WIN32)
             px4_userland_core
             px4_userland_windows_platform
             px4_userland_windows_test_support
+            dtv::json
         )
         target_include_directories(px4_windows_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
@@ -895,7 +899,7 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
             userland/tests/px4d_list_format_tests.cpp
         )
         target_link_libraries(px4_userland_tests PRIVATE
-            px4_userland_posix_ipc dtv::host_ts)
+            px4_userland_posix_ipc dtv::host_ts dtv::json)
         target_compile_definitions(px4_userland_tests PRIVATE
             PX4_POSIX_IPC_TEST_ACCESS=1
         )
@@ -1056,6 +1060,7 @@ if(TARGET px4_userland_posix_ipc)
             px4_userland_host_backends
             px4_userland_host_libusb_transport
             dtv::host_listener_context
+            dtv::json
         )
         target_include_directories(px4d PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
