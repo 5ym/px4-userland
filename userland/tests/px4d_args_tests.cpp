@@ -266,10 +266,29 @@ bool test_list_mode()
     return true;
 }
 
+// `--models` is a static table print: it stands alone like `--list`.
+bool test_models_mode()
+{
+    const Px4dArguments models = parse({"px4d", "--models"});
+    PX4D_CHECK(models.valid && models.models && !models.list && !models.list_json);
+    PX4D_CHECK(models.device.empty() && models.firmware.empty());
+    PX4D_CHECK(!parse(native_arguments()).models);
+    PX4D_CHECK(!parse({"px4d", "--models", "--models"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--models", "--list"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--list-json", "--models"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--models", "--help"}).valid);
+    PX4D_CHECK(!parse({"px4d", "--help", "--models"}).valid);
+    Arguments combined = native_arguments();
+    combined.push_back("--models");
+    PX4D_CHECK(!parse(combined).valid);
+    return true;
+}
+
 }  // namespace
 
 bool run_px4d_args_tests()
 {
     return test_valid_modes() && test_fd_rejections() &&
-           test_device_and_general_rejections() && test_list_mode();
+           test_device_and_general_rejections() && test_list_mode() &&
+           test_models_mode();
 }

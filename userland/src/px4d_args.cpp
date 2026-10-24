@@ -113,6 +113,12 @@ Px4dArguments parse_px4d_arguments(int argc,
             result.list_json = true;
             return result;
         }
+        if (option == "--models") {
+            if (argc != 2) return invalid("--models cannot be combined");
+            result.valid = true;
+            result.models = true;
+            return result;
+        }
         if (option == "--group") {
             if (result.group) return invalid("duplicate --group");
             result.group = true;

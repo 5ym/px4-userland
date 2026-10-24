@@ -12,6 +12,10 @@ namespace px4::userland::tools {
 // appended.  USB devices of other models are not printed.
 std::string format_device_list(const GroupingResult& grouping);
 
+// Formats `px4d --models`: one `MODEL VID:PID` line per supported model, from
+// the static profile table.  Independent of any connected USB device.
+std::string format_model_list();
+
 // Formats `px4d --list-json` as one compact JSON object followed by newline.
 std::string format_device_list_json(const GroupingResult& grouping);
 
