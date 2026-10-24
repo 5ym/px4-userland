@@ -1757,7 +1757,7 @@ bool test_collision_grouping_and_usb_path_selection()
     const auto unknown_location = group_q3u4_devices({unknown_bus});
     CHECK(unknown_location &&
           select_q3u4_group_by_usb_paths(unknown_location.value(), m1.serial,
-                                         {"1-2"}).error() == Error::INVALID_ARGUMENT);
+                                         {"1-2"}).error() == Error::NOT_FOUND);
     CHECK(select_q3u4_group_by_usb_paths(mixed.value(), m1.serial, {"1-2."}).error() ==
           Error::INVALID_ARGUMENT);
     CHECK(select_q3u4_group_by_usb_paths(mixed.value(), m1.serial,
@@ -1783,6 +1783,8 @@ bool test_collision_grouping_and_usb_path_selection()
           ambiguous.value().groups[0U].candidates.size() == 4U);
     CHECK(select_ready_q3u4_group(ambiguous.value(), "00000000000010").error() ==
           Error::INVALID_ARGUMENT);
+    CHECK(select_q3u4_group_by_usb_paths(ambiguous.value(), "00000000000010",
+                                         {"1:20"}).error() == Error::INVALID_ARGUMENT);
     const auto paired = select_q3u4_group_by_usb_paths(
         ambiguous.value(), "00000000000010", {"1:23", "1-3"});
     CHECK(paired && paired.value().candidate_indices[0U] == 2U &&
@@ -1792,6 +1794,16 @@ bool test_collision_grouping_and_usb_path_selection()
           Error::INVALID_ARGUMENT);
     CHECK(select_q3u4_group_by_usb_paths(ambiguous.value(), "00000000000010",
                                          {"1:20"}).error() == Error::INVALID_ARGUMENT);
+
+    const auto unique_pair = group_q3u4_devices({q1a, q2a});
+    CHECK(unique_pair && unique_pair.value().groups[0U].status == GroupStatus::ready);
+    const auto pair_by_one_port = select_q3u4_group_by_usb_paths(
+        unique_pair.value(), {}, {"1-1"});
+    CHECK(pair_by_one_port && pair_by_one_port.value().group_index == 0U &&
+          pair_by_one_port.value().candidate_indices[0U] == 0U &&
+          pair_by_one_port.value().candidate_indices[1U] == 1U);
+    CHECK(select_q3u4_group_by_usb_paths(unique_pair.value(), {}, {"1-8"}).error() ==
+          Error::NOT_FOUND);
     CHECK(valid_runtime_instance("m1.001_port2"));
     CHECK(!valid_runtime_instance(".") && !valid_runtime_instance("..") &&
           !valid_runtime_instance("bad/name") && !valid_runtime_instance(""));

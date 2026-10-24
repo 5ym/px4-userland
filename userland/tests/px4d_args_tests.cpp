@@ -34,7 +34,7 @@ Px4dArguments parse(const Arguments& arguments)
 
 Arguments native_arguments()
 {
-    return {"px4d", "--device", "00001205000960", "--firmware",
+    return {"px4d", "--device", "serial:00001205000960", "--firmware",
             "firmware.bin", "--runtime-dir", "/tmp/px4d"};
 }
 
@@ -49,11 +49,12 @@ bool test_valid_modes()
     const Px4dArguments native = parse(native_arguments());
     PX4D_CHECK(native.valid && !native.help && !native.group);
     PX4D_CHECK(!native.allow_lnb_power);
-    PX4D_CHECK(native.device == "00001205000960");
+    PX4D_CHECK(native.device == "serial:00001205000960");
     PX4D_CHECK(native.firmware == "firmware.bin" &&
                native.runtime_directory == "/tmp/px4d");
     PX4D_CHECK(native.file_descriptor_count == 0U);
-    PX4D_CHECK(native.usb_path_count == 0U && native.instance.empty());
+    PX4D_CHECK(!native.usb_selector && native.usb_path_count == 0U &&
+               native.instance.empty());
     PX4D_CHECK(px4d_open_mode(native) == Px4dOpenMode::native);
 
     const Px4dArguments descriptors = parse(fd_arguments());
@@ -64,24 +65,32 @@ bool test_valid_modes()
     PX4D_CHECK(px4d_open_mode(descriptors) == Px4dOpenMode::file_descriptors);
 
     Arguments filtered = fd_arguments();
-    filtered.insert(filtered.end(), {"--device", "00001205000960", "--group"});
+    filtered.insert(filtered.end(), {"--device", "serial:00001205000960", "--group"});
     const Px4dArguments filtered_result = parse(filtered);
     PX4D_CHECK(filtered_result.valid && filtered_result.group &&
-               filtered_result.device == "00001205000960");
+               filtered_result.device == "serial:00001205000960");
 
     Arguments lnb = native_arguments();
     lnb.push_back("--allow-lnb-power");
     const Px4dArguments lnb_result = parse(lnb);
     PX4D_CHECK(lnb_result.valid && lnb_result.allow_lnb_power);
 
-    Arguments selected = native_arguments();
-    selected.insert(selected.end(), {"--usb-path", "1-2.3", "--usb-path", "2:42",
-                                     "--instance", "q3u4.left"});
+    Arguments selected{"px4d", "--device", "usb:1-2.3,2-42", "--firmware",
+                        "firmware.bin", "--instance", "q3u4.left"};
     const Px4dArguments selected_result = parse(selected);
-    PX4D_CHECK(selected_result.valid && selected_result.usb_path_count == 2U &&
+    PX4D_CHECK(selected_result.valid && selected_result.usb_selector &&
+               selected_result.device == "usb:1-2.3,2-42" &&
+               selected_result.usb_path_count == 2U &&
                selected_result.usb_paths[0U] == "1-2.3" &&
-               selected_result.usb_paths[1U] == "2:42" &&
+               selected_result.usb_paths[1U] == "2-42" &&
                selected_result.instance == "q3u4.left");
+
+    const Px4dArguments single_path = parse(
+        {"px4d", "--device", "usb:1-2.3", "--firmware", "firmware.bin",
+         "--instance", "q3u4.left"});
+    PX4D_CHECK(single_path.valid && single_path.usb_selector &&
+               single_path.usb_path_count == 1U &&
+               single_path.usb_paths[0U] == "1-2.3");
 
     Arguments named_fd = fd_arguments();
     named_fd.insert(named_fd.end(), {"--instance", "fd_device-1"});
@@ -148,9 +157,11 @@ bool test_device_and_general_rejections()
     PX4D_CHECK(!parse(no_device).valid);
 
     Arguments bad_native = native_arguments();
-    bad_native[2U] = "0000120500096";
+    bad_native[2U] = "serial:0000120500096";
     PX4D_CHECK(!parse(bad_native).valid);
-    bad_native[2U] = "0000120500096x";
+    bad_native[2U] = "serial:0000120500096x";
+    PX4D_CHECK(!parse(bad_native).valid);
+    bad_native[2U] = "00001205000960";
     PX4D_CHECK(!parse(bad_native).valid);
 
     Arguments bad_fd_filter = fd_arguments();
@@ -163,7 +174,7 @@ bool test_device_and_general_rejections()
 
     Arguments duplicate_device = native_arguments();
     duplicate_device.insert(duplicate_device.end(),
-                            {"--device", "00001205000960"});
+                            {"--device", "serial:00001205000960"});
     PX4D_CHECK(!parse(duplicate_device).valid);
 
     Arguments unknown = native_arguments();
@@ -193,39 +204,40 @@ bool test_device_and_general_rejections()
     PX4D_CHECK(!parse(posix_exit_on_eof).valid);
 #endif
 
-    Arguments path_without_instance = native_arguments();
-    path_without_instance.insert(path_without_instance.end(), {"--usb-path", "1-2"});
-    PX4D_CHECK(!parse(path_without_instance).valid);
-    Arguments fd_and_path = fd_arguments();
-    fd_and_path.insert(fd_and_path.end(), {"--usb-path", "1:2", "--instance", "fd"});
-    PX4D_CHECK(!parse(fd_and_path).valid);
-    for (const char* path : {"", "0:2", "1:0", "256:1", "1:", "1:2:3",
-                             "1-", "1-0", "1-256", "1-1.", "1-1..2",
-                             "1-1.2.3.4.5.6.7.8.9"}) {
-        Arguments invalid_path = native_arguments();
-        invalid_path.insert(invalid_path.end(), {"--usb-path", path,
-                                                 "--instance", "named"});
-        PX4D_CHECK(!parse(invalid_path).valid);
+    const Arguments usb_without_instance{"px4d", "--device", "usb:1-2.3",
+                                         "--firmware", "firmware.bin"};
+    PX4D_CHECK(!parse(usb_without_instance).valid);
+    Arguments fd_and_usb = fd_arguments();
+    fd_and_usb.insert(fd_and_usb.end(), {"--device", "usb:1-2.3",
+                                         "--instance", "fd"});
+    PX4D_CHECK(!parse(fd_and_usb).valid);
+    Arguments old_usb_path = native_arguments();
+    old_usb_path.insert(old_usb_path.end(), {"--usb-path", "1-2"});
+    PX4D_CHECK(!parse(old_usb_path).valid);
+    for (const char* selector : {"", "serial:", "serial:bad", "usb:", "usb:1:2",
+                                 "usb:01-2", "usb:1-0", "usb:1-2.",
+                                 "usb:1-1,", "usb:1-1,1-1"}) {
+        const Arguments invalid_selector{"px4d", "--device", selector,
+                                         "--firmware", "firmware.bin",
+                                         "--instance", "named"};
+        PX4D_CHECK(!parse(invalid_selector).valid);
     }
-    Arguments three_paths = native_arguments();
-    three_paths.insert(three_paths.end(), {"--usb-path", "1-1", "--usb-path",
-                                             "1-2", "--usb-path", "1-3",
-                                             "--instance", "named"});
+    const Arguments three_paths{"px4d", "--device", "usb:1-1,1-2,1-3",
+                                "--firmware", "firmware.bin", "--instance", "named"};
     PX4D_CHECK(!parse(three_paths).valid);
-    Arguments duplicate_path = native_arguments();
-    duplicate_path.insert(duplicate_path.end(), {"--usb-path", "1-1",
-                                                 "--usb-path", "1-1",
-                                                 "--instance", "named"});
-    PX4D_CHECK(!parse(duplicate_path).valid);
+    const Arguments address_selector{"px4d", "--device", "usb:1:2",
+                                     "--firmware", "firmware.bin",
+                                     "--instance", "named"};
+    PX4D_CHECK(!parse(address_selector).valid);
     Arguments bad_instance = native_arguments();
     bad_instance.insert(bad_instance.end(), {"--instance", "../bad"});
     PX4D_CHECK(!parse(bad_instance).valid);
     Arguments reserved_instance = native_arguments();
     reserved_instance.insert(reserved_instance.end(), {"--instance", "999999999999999"});
     PX4D_CHECK(!parse(reserved_instance).valid);
-    Arguments same_instance = native_arguments();
-    same_instance.insert(same_instance.end(), {"--usb-path", "1-2",
-                                               "--instance", "00001205000960"});
+    const Arguments same_instance{"px4d", "--device", "usb:1-2",
+                                  "--firmware", "firmware.bin", "--instance",
+                                  "00001205000960"};
     PX4D_CHECK(!parse(same_instance).valid);
 
     const Arguments help{"px4d", "--help"};
@@ -318,9 +330,9 @@ bool test_short_options_and_verbose()
     short_firmware.insert(short_firmware.end(), {"-v", "--verbose", "-v"});
     PX4D_CHECK(parse(short_firmware).valid && parse(short_firmware).verbose);
     for (const char* option : {"-F", "--firmware"}) {
-        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option}).valid);
-        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option, ""}).valid);
-        PX4D_CHECK(!parse({"px4d", "--device", "00001205000960", option, "--help"}).valid);
+        PX4D_CHECK(!parse({"px4d", "--device", "serial:00001205000960", option}).valid);
+        PX4D_CHECK(!parse({"px4d", "--device", "serial:00001205000960", option, ""}).valid);
+        PX4D_CHECK(!parse({"px4d", "--device", "serial:00001205000960", option, "--help"}).valid);
         Arguments duplicate = native_arguments();
         duplicate.insert(duplicate.end(), {option, "other.bin"});
         PX4D_CHECK(!parse(duplicate).valid);

@@ -61,18 +61,19 @@ void usage() noexcept
 {
     std::printf(
         "usage:\n"
-        "  px4d --device BASE_SERIAL --firmware PATH "
-        "[--usb-path BUS:ADDRESS|BUS-PORT ...] [--instance TOKEN] "
+        "  px4d --device serial:SERIAL|usb:BUS-PORT[,BUS-PORT...] --firmware PATH "
+        "[--instance TOKEN] "
         "[--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
-        "  px4d --fd FD [--fd FD] [--device BASE_SERIAL] --firmware PATH "
+        "  px4d --fd FD [--fd FD] [--device serial:SERIAL] --firmware PATH "
         "[--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]\n"
         "  px4d --list-json\n"
         "  px4d --models\n"
         "  px4d --version\n"
         "\n"
-        "  BASE_SERIAL is the 14-digit serial base for paired devices or the\n"
-        "  15-digit USB serial for single-device models.  Pass one --fd per\n"
-        "  USB device: two for paired models, one for single-device models.\n"
+        "  serial: selects an observed PX4 serial; usb: selects one or two\n"
+        "  current USB topology paths.  Topology selection requires --instance.\n"
+        "  Pass one --fd per USB device: two for paired models, one for\n"
+        "  single-device models.\n"
         "\n"
         "  -h, --help         print this help and exit\n"
         "  -F, --firmware PATH  load firmware from PATH\n"
@@ -768,6 +769,9 @@ int main(int argc, char** argv)
     }
     if (arguments.list_json) return list_devices();
 
+    const std::string_view requested_base_serial = arguments.device.empty() || arguments.usb_selector
+        ? std::string_view{} : std::string_view(arguments.device).substr(7U);
+
     Logger logger(arguments.verbose ? LogLevel::debug : LogLevel::info, log_to_stderr);
     logger.log(LogLevel::debug, "loading firmware");
     FirmwareProvider firmware_provider(arguments.firmware);
@@ -788,29 +792,30 @@ int main(int argc, char** argv)
         // open_fds duplicates these caller-owned descriptors.  The runtime
         // owns and closes only its duplicates; termux-usb/UsbManager owners
         // remain responsible for the originals.
-        runtime = Q3U4Runtime::open_fds(file_descriptors, arguments.device);
+        runtime = Q3U4Runtime::open_fds(file_descriptors, requested_base_serial);
     } else {
         const std::vector<std::string> usb_paths(
             arguments.usb_paths.begin(),
             arguments.usb_paths.begin() +
                 static_cast<std::ptrdiff_t>(arguments.usb_path_count));
-        runtime = Q3U4Runtime::open_native(arguments.device, usb_paths);
+        runtime = Q3U4Runtime::open_native(requested_base_serial, usb_paths);
     }
     if (!runtime) {
         std::fprintf(stderr, "device open: %s\n", error_string(runtime.error()));
-        if (mode == Px4dOpenMode::native && arguments.usb_path_count == 0U &&
+        if (mode == Px4dOpenMode::native && !arguments.usb_selector &&
             runtime.error() == Error::INVALID_ARGUMENT) {
             const auto grouping = Q3U4Runtime::enumerate_native();
             if (grouping) {
                 GroupingResult matches;
                 for (const Q3U4Group& group : grouping.value().groups) {
-                    if (group.base_serial == arguments.device) matches.groups.push_back(group);
+                    if (group.base_serial == requested_base_serial) matches.groups.push_back(group);
                 }
                 if (!matches.groups.empty()) {
                     const std::string candidates = tools::format_device_list(matches);
                     std::fprintf(stderr,
-                                 "serial is not uniquely selectable; specify --usb-path "
-                                 "and --instance. Candidates:\n%s",
+                                 "serial is not uniquely selectable; specify "
+                                 "--device usb:BUS-PORT[,BUS-PORT] and --instance. "
+                                 "Candidates:\n%s",
                                  candidates.c_str());
                 }
             }

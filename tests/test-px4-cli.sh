@@ -38,18 +38,18 @@ cmp "$test_root/short-help" "$test_root/long-help"
 [ ! -s "$test_root/help.err" ]
 for option in -F --firmware; do
     status=0
-    "$build/px4d" --device 00001205000960 "$option" "$test_root/missing.bin" \
+    "$build/px4d" --device serial:00001205000960 "$option" "$test_root/missing.bin" \
         >"$test_root/out" 2>"$test_root/$option.err" || status=$?
     [ "$status" -eq 3 ]
     [ ! -s "$test_root/out" ]
     status=0
-    "$build/px4d" --device 00001205000960 "$option" >/dev/null 2>&1 || status=$?
+    "$build/px4d" --device serial:00001205000960 "$option" >/dev/null 2>&1 || status=$?
     [ "$status" -eq 2 ]
 done
 cmp "$test_root/-F.err" "$test_root/--firmware.err"
 for option in -v --verbose; do
     status=0
-    "$build/px4d" --device 00001205000960 -F "$test_root/missing.bin" "$option" \
+    "$build/px4d" --device serial:00001205000960 -F "$test_root/missing.bin" "$option" \
         >"$test_root/out" 2>"$test_root/$option.err" || status=$?
     [ "$status" -eq 3 ]
     [ ! -s "$test_root/out" ]

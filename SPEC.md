@@ -484,7 +484,7 @@ v0.18の対応USB IDと筐体識別子は次のとおりとする。未掲載の
   `invalid_serial`とする。MLT5系ではserial末尾を`dev_id`として解釈しない。
 - MLT5系のtopologyとspeedはQ3U4と同じ条件（interface 0 alt 0、bulk endpoint `0x81`/`0x02`/`0x84`/`0x85`、
   各512 byte、high speed以上）を要求する。
-- `--device`、PC/SCの`device=`、runtime instance名は、14桁（2 bridge機種）または15桁（単一USB機種）のASCII数字だけを受理する。
+- PC/SCの`device=`とruntime instanceの観測serialは、14桁（2 bridge機種）または15桁（単一USB機種）のASCII数字だけを受理する。
   桁数で機種群を判別できるため、Q3U4 base serialとMLT5系serialは衝突しない。
 - 単一USB機種は`dev_id 1`として扱い、物理カードスロットを1つ公開する。カードreader有無がupstreamで確認できない機種は
   card reader hardware-unverifiedとする。
@@ -495,19 +495,21 @@ v0.26では、上記のserialは**観測された値**であり、全機種を�
 - groupingは機種とserialを併用する。単一USB機種は同機種・同serialの複数観測もそれぞれ1筐体として保持し、
   USB位置で区別する。2 bridge機種は同機種・同base serialのdev 1とdev 2が各1件のときだけreadyにする。
   片側欠落はincomplete、いずれかが複数ならduplicateとして全候補を診断に残す。位置の近さから相方を推測しない。
-- `px4d --device SERIAL`は従来どおり14桁または15桁の数字を受け付ける。native列挙で同じserialに
-  readyな筐体が複数あるか、該当するduplicate群がある場合は、任意の1台を選ばずclaim前にusage error
-  （exit 2）とし、候補の機種・bus・address・portと`--usb-path`指定をstderrへ示す。
-  対象が1筐体のときだけserial単独で開く。
-- native起動では`--device SERIAL`に加え`--usb-path PATH`を1回または2回指定できる。
-  `PATH`は現在のUSB接続を表す`BUS:ADDRESS`（各1..255）または`BUS-PORT[.PORT...]`
-  （BUSと各PORTは1..255、PORTは1..8要素）であり、後者は`--list`の`port`と同じ表記とする。
-  単一USB機種は1パス、2 bridge機種はdev 1/dev 2の2パスを要求する。serial・機種・bridgeの整合、
-  パスの一意性、観測した場所の存在をclaim前に検査する。一致しない、または場所が取得できない場合は失敗し、
-  未知の場所を推測で補わない。`--fd`と`--usb-path`は併用しない。FD経路は渡されたFD自体を選択子とする。
+- `px4d --device`は共有Coreと同じ`serial:...`または`usb:...` selectorを受け付け、裸serialと旧`--usb-path`は受け付けない。
+  PX4の`serial:` suffixは14桁base serialまたは単一USB機種の15桁USB serialとする。
+  同じserialのready筐体が複数あるか該当groupがduplicateなら、任意の1台を選ばずclaim前にusage error（exit 2）とし、
+  候補の機種・bus・address・portと`usb:`指定方法をstderrへ示す。
+- native起動の`usb:`は、現在の`BUS-PORT[.PORT...]`を1位置またはcomma区切りで2位置まで指定する。
+  `BUS`と各`PORT`は共有Core parserの範囲内の正のASCII decimalとし、`BUS:ADDRESS`はselectorとして受け付けない。
+  単一USB機種は1位置、2 bridge機種は2位置で選択できる。2 bridge機種は、1位置が完全でreadyなgroup中の候補と
+  正確に一度一致する場合だけ、そのgroupの相方を解決できる。duplicate/incomplete、不一致、未観測位置は推測せず失敗する。
+  2位置指定は両方が同じgroupの別bridgeへ一意に一致しなければならない。serialと位置による選択は同じgrouping結果と
+  実open候補へ結び付け、指定された選択条件をclaim前に検査する。
+- `--fd`は渡されたFD自体を選択子とする。任意の`--device serial:...`はFD群に対するserial assertionとして扱い、
+  USB topology selectorはFD経路では位置を検証できないため拒否する。
 - 選択したgroupと実際にopen/claimするUSB候補は同じ列挙オブジェクト、FD経路では同じFD indexで対応付ける。
   serialだけで候補を再照合してはならない。2 bridgeの明示パスも、指定順ではなく観測されたdev 1/2に配置する。
-- runtime endpointの`instance`はobserved serialとは別の単一パス要素とする。`--usb-path`指定時は
+- runtime endpointの`instance`はobserved serialとは別の単一パス要素とする。`usb:`指定時は
   `px4d --instance TOKEN`を必須とし、TOKENは1..80文字のASCII英数字・`_`・`-`・`.`だけを受理する
   （`.`と`..`単体、および他機種のserialとの混同を避けるため14桁または15桁の数字列は不可）。
   FD起動でも`--instance`を任意に指定できる。
@@ -519,7 +521,7 @@ v0.26では、上記のserialは**観測された値**であり、全機種を�
 - 同じruntime rootとobserved serialを使うdaemon群は、endpoint公開前から終了後のsocket解放まで
   serial名前空間の排他を保持する。serial名instanceは排他、明示TOKENのinstance同士は共有とし、
   両modeが混在する起動は`BUSY`で拒否する。これにより、明示TOKENのdaemonが1台でも稼働中なら
-  新規のserial名socketは作られず、旧`--device SERIAL`クライアントが別の稼働中機器へ誤接続しない。
+  新規のserial名socketは作られず、旧`--device serial:SERIAL`クライアントが別の稼働中機器へ誤接続しない。
   排他は同じruntime rootと同一UIDを使うv0.26以降のdaemon間で成立し、異なるroot・異なるUID・
   旧版daemonとの混在は対象外とする。
   ロックに使うruntime root内のファイルは通常終了後に最後の保持者が安全に削除する。
@@ -1025,7 +1027,7 @@ queue overflow、sync/TEI/drop検出を0にしない。stdoutはTSだけ、全�
 - Android NDK API 24でaarch64、armv7a、x86_64をクロスビルドし、3つのABIを同一の配布・監査対象とする。
 - ELF interpreterはBionic linker、libusbはstatic link、host RPATH/RUNPATHは空とする。
 - Termux試験では正式ランチャー `px4-termux` が `termux-usb` から開いた2つのfdを渡し、通常のCLI/IPC経路を使用する。
-- `px4-termux --usb-device PATH --usb-device PATH --firmware PATH [--device BASE_SERIAL] [--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]`
+- `px4-termux --usb-device PATH --usb-device PATH --firmware PATH [--device serial:SERIAL] [--instance TOKEN] [--runtime-dir PATH] [--group] [--allow-lnb-power]`
   を提供する。利用者は異なる2つのデバイスパスを明示し、自動選択は行わない。ランチャーの実行時依存はTermux付属のsh、
   Termux:APIの `termux-usb`、およびtermux-apiパッケージの依存関係として提供される `util-linux` の `setsid` のみとし、
   Python、補助デーモン、eval、一時状態ファイルを要求しない。

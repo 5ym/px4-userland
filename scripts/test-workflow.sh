@@ -225,7 +225,7 @@ if grep -F 'rm -rf' "$root/README.md" >/dev/null; then
 fi
 # Matches the current README synopsis, which now takes a device or an instance
 # token; the older --device-only form drifted from the documented interface.
-grep -F 'px4-ts (--device SERIAL | --instance TOKEN) --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]' "$root/README.md" >/dev/null
+grep -F 'px4-ts (--device serial:...|usb:... | --instance TOKEN) --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]' "$root/README.md" >/dev/null
 grep -F '3つすべてに' "$root/README.md" >/dev/null
 grep -F '完全静的CLI + glibc/musl別IFD' "$root/README.md" >/dev/null
 test "$(grep -c 'name: Release candidate Linux x86_64 Ubuntu artifact smoke' "$workflow")" -eq 1
