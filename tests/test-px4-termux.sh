@@ -23,7 +23,9 @@ cleanup()
 trap cleanup EXIT
 
 version=$(tr -d '\n' < "$root/VERSION")
-[ "$(sh "$launcher" --version 2>"$test_root/version.err")" = "px4-termux $version" ] ||
+output=$(sh "$launcher" --version 2>"$test_root/version.err") ||
+    fail_test 'source launcher version failed'
+[ "$output" = "px4-termux $version" ] ||
     fail_test 'source launcher version does not match VERSION'
 [ ! -s "$test_root/version.err" ] || fail_test 'version wrote to stderr'
 for option in --version --help --group --allow-lnb-power --unknown; do

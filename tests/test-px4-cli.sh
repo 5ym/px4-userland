@@ -12,7 +12,8 @@ for program in px4d px4-ts px4ctl px4-termux; do
     fi
     name=$program
     [ "$program" != px4ctl ] || name=px4-userland
-    [ "$("$@" --version)" = "$name $version" ]
+    output=$("$@" --version)
+    [ "$output" = "$name $version" ]
     "$@" --help >/dev/null
     for option in --help --version --unknown; do
         status=0
