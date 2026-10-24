@@ -25,6 +25,21 @@ verboseは既存Core Loggerの閾値をdebugへ切り替え、stderrへ定型診
 Termuxランチャーにもbuild/package時に同じ`VERSION`を埋め込み、別の版定数を管理しない。
 この追補はCLIの既決仕様を回収するもので、製品版・IPC版・受信経路は変更しない。
 
+### 1.0.0 discovery JSON決定の追補 (2026-10-24)
+
+旧4.6節の独自JSON構造に優先し、`px4d --list-json`は固定Coreの`DiscoveryScan`を
+共有serializerへ渡す。`schema`、`producer`、`scan.complete/issues`と
+`enclosures[].devices[].receivers[]`の物理階層を公開し、受信機の`receiver/device/local`はnumber、
+`systems`は`ISDB-T`/`ISDB-S`等の配列とする。modelは簡潔な機種名、usbはVID:PIDの文字列。
+筐体の`serial_unique`はスキャン内の重複が確認できればfalse、判定不能ならnullであり、
+筐体がreadyでないことだけを理由にfalseにしない。
+
+観測していない兄弟USBは追加せず、既存profileで特定できる観測USBの受信機だけを対応付ける。
+共有readerと静的LNB能力は筐体直下へ置く。readerの結び付くUSBが未観測ならreader inventoryを
+省略し、未知を空配列にしない。serial不明・開けないUSB等はungrouped観測とscan issueへ残し、
+USB descriptor読み取り失敗もscan不完全として伝える。JSONで表せないserialは別の識別文字列へ
+置き換えずnullとする。Core pin、動的STATUS、selector、受信/Card/LNB操作経路は変更しない。
+
 ### v0.37 change record (2026-10-11)
 
 - 1、3、7.6、10.4節: Windows 11 x64へapplication-localなB25用WinSCard互換DLLを追加する。

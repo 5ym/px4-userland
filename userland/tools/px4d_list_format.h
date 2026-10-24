@@ -4,6 +4,7 @@
 #include "px4/identity.h"
 
 #include <string>
+#include <string_view>
 
 namespace px4::userland::tools {
 
@@ -17,6 +18,7 @@ std::string format_device_list(const GroupingResult& grouping);
 std::string format_model_list();
 
 // Formats `px4d --list-json` as one compact JSON object followed by newline.
-std::string format_device_list_json(const GroupingResult& grouping);
+Result<std::string> format_device_list_json(const GroupingResult& grouping,
+                                           std::string_view version);
 
 } // namespace px4::userland::tools

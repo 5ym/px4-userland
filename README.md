@@ -365,7 +365,7 @@ px4d --version
 - `--runtime-dir PATH`: ランタイムルートディレクトリを指定します（省略時は `$XDG_RUNTIME_DIR`）。
 - `--allow-lnb-power`: LNB 15V 対応機種で、衛星放送受信時の給電を許可します（安全のための明示的 opt-in）。非対応の5機種は上の一覧を参照してください。
 - `--fd FD [--fd FD]`: Android 環境などで、ホスト側が開いた USB ファイルディスクリプタを直接渡して起動します。PX-Q3U4 は 2 つ、PX-M1UR / PX-S1UR / DTV02A-5TS-P / PX-MLT5PE は 1 つ指定します（この場合 `--device` は任意）。
-- `--list-json`: 接続中の対象筐体を整形しない単一JSON文書で出して終了します（単独で指定）。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。場所が不明な項目は`null`になり、`ungrouped_usb_devices`には`invalid_serial`または`open_failed`のUSB観測を載せます。旧`px4d --list`は廃止し、不正引数（exit 2）とします。`px4ctl list`は引き続き利用できます。
+- `--list-json`: 接続中の対象筐体をCore共通の`userland.discovery` JSONで出して終了します（単独で指定）。`schema`・`producer`・`scan.complete/issues`を持ち、観測したUSBだけを`enclosures[].devices[]`へ、そのUSBの受信機を`devices[].receivers[]`へ載せます。`model`と`usb`は文字列、番号はnumber、放送方式は`systems:["ISDB-T","ISDB-S"]`等の配列です。共有`readers`と静的`lnb_15v_supported`は筐体直下です。未知inventoryは省略し、既知の0件と区別します。`serial_unique`はスキャン内の一意性で、重複は`false`、観測不足は`null`です。片側USBだけの筐体は、それだけを理由に重複扱いしません。デバイスを所有せず、ファームウェアも稼働中の `px4d` も不要です。場所やserialの不明項目は`null`、筐体に割り当てられない対象USB観測は`ungrouped_usb_devices`へ残します。旧`px4d --list`は廃止し、不正引数（exit 2）とします。`px4ctl list`は引き続き利用できます。
 - `--models`: 対応機種名とVID:PIDの静的テキスト一覧を出します。USBアクセスは行いません。
 - `--version`: `px4d VERSION`を標準出力へ出して終了します。`px4-ts`と`px4-termux`も自身のコマンド名と同じ管理元`VERSION`の版を表示します。既存の`px4ctl`は製品名`px4-userland VERSION`を表示します。単独指定のみ受理し、他引数との併用はexit 2です。機器・firmware・稼働daemon・TermuxのUSB許可は不要です。通常ビルドのランチャーはbuildディレクトリの`px4-termux`、配布版はアーカイブ内のものを使います。
 
