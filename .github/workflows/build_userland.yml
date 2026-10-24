@@ -940,12 +940,18 @@ jobs:
               throw "missing WinSCard $required test fixture"
             }
           }
+          if (-not (Test-Path (Join-Path $tests 'px4_windows_winscard_native_fixture_tests.exe'))) {
+            throw 'missing shared Core WinSCard native fixture'
+          }
           if (-not (Test-Path (Join-Path $tests 'WinSCard.dll'))) { throw 'missing test WinSCard DLL' }
           $failed = @()
           foreach ($suite in $suites) {
             Write-Host "== $($suite.Name) =="
-            if ($suite.Name -eq 'px4_windows_winscard_client_tests.exe') {
-              # A deadlock regression in the production-DLL shutdown race
+            if ($suite.Name -eq 'px4_windows_winscard_native_fixture_tests.exe') {
+              & $suite.FullName (Join-Path $tests 'WinSCard.dll')
+              $exitCode = $LASTEXITCODE
+            } elseif ($suite.Name -eq 'px4_windows_winscard_client_tests.exe') {
+              # A deadlock regression in the product client shutdown path
               # must fail promptly. Terminate only this spawned test process.
               $stdout = Join-Path $tests 'winscard-client.stdout.log'
               $stderr = Join-Path $tests 'winscard-client.stderr.log'
@@ -996,6 +1002,12 @@ jobs:
           $fixture = Join-Path $env:RUNNER_TEMP 'win-candidate-tests/px4_windows_winscard_import_tests.exe'
           Copy-Item -LiteralPath $fixture -Destination $winscard
           & (Join-Path $winscard 'px4_windows_winscard_import_tests.exe')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Exercise the shared Core DLL from the exact PX4 release package path
+          # against both mocked product CARD endpoints.
+          $nativeFixture = Join-Path $env:RUNNER_TEMP 'win-candidate-tests/px4_windows_winscard_native_fixture_tests.exe'
+          Copy-Item -LiteralPath $nativeFixture -Destination $winscard
+          & (Join-Path $winscard 'px4_windows_winscard_native_fixture_tests.exe') (Join-Path $winscard 'WinSCard.dll')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify Microsoft SDK code and DATA imports against the release DLL
         shell: pwsh

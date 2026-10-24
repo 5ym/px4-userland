@@ -276,9 +276,12 @@ def render_dependency_notice(repo_root: Path, version: str, platform: str,
             f"dependency.toolchain.licenses={WINDOWS_TOOLCHAIN_LICENSE_NOTICE}\n"
             f"dependency.winscard.artifact={WINDOWS_WINSCARD_ARTIFACT}\n"
             "dependency.winscard.architecture=x86_64\n"
+            "dependency.winscard.license=GPL-2.0-only\n"
             f"corresponding-source-archive=px4-userland-{version}-source.tar.gz\n\n"
             "px4d statically includes libusb 1.0.30 under LGPL-2.1-or-later. px4-ts, px4ctl, and the "
-            "application-local x64 WinSCard.dll do not link libusb. The binaries dynamically load only Windows "
+            "application-local x64 WinSCard.dll do not link libusb. WinSCard.dll is the shared Core adapter, "
+            "licensed separately under GPL-2.0-only; its exact source and COPYING are in the corresponding-source "
+            "archive. The binaries dynamically load only Windows "
             "system libraries, including the real system WinSCard for external readers, the UCRT and the "
             "WinUSB, SetupAPI, Cfgmgr32, AdvAPI32, and hid libraries that libusb loads at runtime. The "
             "C++/unwinder/winpthread/MinGW-w64 runtimes are statically linked. The exact narrow llvm-mingw "
@@ -492,7 +495,7 @@ def self_test_windows_archive(repo_root: Path) -> None:
             "libusb_archive_sha256": LIBUSB_SHA256,
             "source_ref": "self-test", "programs": list(PROGRAMS), "production_only": True, "files": {},
             "winscard": {"artifact": WINDOWS_WINSCARD_ARTIFACT, "architecture": "x86_64",
-                         "deployment": "application-local"},
+                         "deployment": "application-local", "license": "GPL-2.0-only"},
         }
         if winscard_metadata is not None:
             manifest["winscard"] = winscard_metadata
@@ -886,7 +889,8 @@ def main() -> int:
         if args.platform == WINDOWS_PLATFORM:
             manifest["libusb_archive_sha256"] = LIBUSB_SHA256
             manifest["winscard"] = {"artifact": WINDOWS_WINSCARD_ARTIFACT,
-                                   "architecture": "x86_64", "deployment": "application-local"}
+                                   "architecture": "x86_64", "deployment": "application-local",
+                                   "license": "GPL-2.0-only"}
         for path in sorted(stage.rglob("*")):
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = {"size": path.stat().st_size, "sha256": sha256(path)}

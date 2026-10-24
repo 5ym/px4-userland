@@ -156,6 +156,12 @@ WINDOWS_SOURCE_ALLOWED = re.compile(
     r"|third_party/dtv-userland-core/adapters/host_listener_context/src/windows/listener_io_windows\.cpp"
     r"|third_party/dtv-userland-core/adapters/host_runtime/include/windows/windows_security\.h"
     r"|third_party/dtv-userland-core/adapters/host_ts/windows/px4_ts_windows_output\.cpp"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/CMakeLists\.txt"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/COPYING"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/README\.md"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/winscard\.def"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_(?:card_client\.(?:cpp|h)|native\.h|product\.h)"
+    r"|third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_proxy\.cpp"
     r"|scripts/build-windows\.sh"
     r"|docs/[\w./+-]*windows[\w./+-]*"
     r")$", re.IGNORECASE
@@ -172,7 +178,7 @@ WINDOWS_SOURCE_REQUIRED = {
     "repository/userland/tests/windows_worker_tests_main.cpp",
     "repository/userland/include/px4/windows_tuner_nonce.h",
 }
-WINDOWS_WINSCARD_SOURCE_REQUIRED = {
+PX4_WINSCARD_SOURCE_REQUIRED = {
     "repository/CMakeLists.txt",
     "repository/" + WINDOWS_WINSCARD_DOCUMENT,
     "repository/scripts/px4-winscard.def",
@@ -183,6 +189,18 @@ WINDOWS_WINSCARD_SOURCE_REQUIRED = {
     "repository/userland/tests/windows_winscard_client_tests.cpp",
     "repository/userland/tests/windows_winscard_proxy_tests.cpp",
     "repository/userland/tests/windows_winscard_import_tests.cpp",
+}
+WINDOWS_WINSCARD_SOURCE_REQUIRED = {
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/COPYING",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/README.md",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/CMakeLists.txt",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/winscard.def",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_card_client.h",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_card_client.cpp",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_native.h",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_product.h",
+    "repository/third_party/dtv-userland-core/adapters/windows_winscard/windows/winscard_proxy.cpp",
+    "repository/third_party/dtv-userland-core/tests/windows_winscard_native_fixture_tests.cpp",
 }
 
 
@@ -603,7 +621,8 @@ def verify_windows_manifest(archive: Path, members: dict[str, zipfile.ZipInfo], 
     if manifest.get("embedded_libusb") != {"version": "1.0.30", "linkage": "static"}:
         fail("manifest libusb linkage metadata mismatch")
     if manifest.get("winscard") != {"artifact": WINDOWS_WINSCARD_ARTIFACT,
-                                    "architecture": "x86_64", "deployment": "application-local"}:
+                                    "architecture": "x86_64", "deployment": "application-local",
+                                    "license": "GPL-2.0-only"}:
         fail("manifest WinSCard metadata mismatch")
     if "libusb_dll" in manifest:
         fail("manifest names a packaged libusb DLL")
@@ -667,6 +686,7 @@ def audit_windows_archive(args: argparse.Namespace) -> dict:
         "dependency.toolchain.licenses": WINDOWS_TOOLCHAIN_LICENSE_NOTICE,
         "dependency.winscard.artifact": WINDOWS_WINSCARD_ARTIFACT,
         "dependency.winscard.architecture": "x86_64",
+        "dependency.winscard.license": "GPL-2.0-only",
         "corresponding-source-archive": f"px4-userland-{version}-source.tar.gz",
     }
     for key, value in required_fields.items():
@@ -1527,8 +1547,23 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
         # A committed Windows tree must ship the complete adapter,
         # test, build script, and header coverage; a partial tree is rejected.
         required |= WINDOWS_SOURCE_REQUIRED
-    if any("winscard" in name.lower() for name in members):
+    product_cmake = (read_archive_file(args.archive.resolve(), "repository/CMakeLists.txt").decode("utf-8")
+                     if "repository/CMakeLists.txt" in members else "")
+    adopts_windows_winscard = "PX4_BUILD_WINSCARD" in product_cmake and \
+        "dtv_add_windows_winscard_dll" in product_cmake
+    core_winscard_prefix = common_prefix + "adapters/windows_winscard/"
+    core_winscard_members = {name for name in members if name.startswith(core_winscard_prefix)}
+    if adopts_windows_winscard:
+        if common_lock not in members:
+            fail("PX4 WinSCard product does not bundle the pinned Core source")
         required |= WINDOWS_WINSCARD_SOURCE_REQUIRED
+    product_winscard_material = any(
+        name in members for name in PX4_WINSCARD_SOURCE_REQUIRED
+        if name != "repository/CMakeLists.txt")
+    if adopts_windows_winscard or product_winscard_material:
+        required |= PX4_WINSCARD_SOURCE_REQUIRED
+    elif core_winscard_members or common_prefix + "tests/windows_winscard_native_fixture_tests.cpp" in members:
+        fail("source archive includes GPL Windows WinSCard sources without an adopted product target")
     if not required.issubset(members):
         fail(f"source archive is missing: {sorted(required-set(members))}")
     for name in members:
@@ -1564,6 +1599,8 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
     if manifest.get("libusb_archive_sha256") != LIBUSB_SHA256:
         fail("source manifest does not record the pinned libusb checksum")
     common_commit = manifest.get("dtv_userland_core_commit")
+    source_notice = read_archive_file(args.archive.resolve(), "DEPENDENCY-NOTICE.txt").decode("utf-8")
+    source_fields = notice_fields(source_notice)
     if common_lock in members:
         lock_revision = read_archive_file(args.archive.resolve(), common_lock).decode("utf-8").strip()
         if not re.fullmatch(r"[0-9a-f]{40}", lock_revision) or lock_revision == "0" * 40:
@@ -1580,6 +1617,18 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
             args.archive.resolve(), common_prefix + "PROVENANCE.json").decode("utf-8")
         if not common_provenance.strip():
             fail("bundled dtv-userland-core PROVENANCE.json is empty")
+        winscard_copying_path = common_prefix + "adapters/windows_winscard/COPYING"
+        if winscard_copying_path in members:
+            if manifest.get("dtv_userland_core_windows_winscard_license") != "GPL-2.0-only" or \
+                    source_fields.get("dependency.dtv-userland-core.windows-winscard-license") != "GPL-2.0-only":
+                fail("source archive does not declare the Windows WinSCard adapter license")
+            winscard_copying = read_archive_file(
+                args.archive.resolve(), winscard_copying_path).decode("utf-8")
+            if "GNU GENERAL PUBLIC LICENSE" not in winscard_copying or "Version 2" not in winscard_copying:
+                fail("bundled Windows WinSCard adapter COPYING is not GPL-2.0")
+        elif manifest.get("dtv_userland_core_windows_winscard_license") is not None or \
+                source_fields.get("dependency.dtv-userland-core.windows-winscard-license") is not None:
+            fail("source archive declares an absent Windows WinSCard adapter")
     else:
         if common_commit is not None or manifest.get("dtv_userland_core_license") is not None:
             fail("source manifest declares dtv-userland-core without a product lock")
@@ -1606,8 +1655,6 @@ def audit_source_archive(args: argparse.Namespace) -> dict:
                 fail("embedded libusb source has no COPYING")
     except (OSError, tarfile.TarError) as error:
         fail(f"cannot inspect embedded libusb source: {error}")
-    source_notice = read_archive_file(args.archive.resolve(), "DEPENDENCY-NOTICE.txt").decode("utf-8")
-    source_fields = notice_fields(source_notice)
     if source_fields.get("dependency.libusb.version") != "1.0.30" or \
             source_fields.get("corresponding-source-archive") != "present":
         fail("source dependency notice is missing stable dependency fields")

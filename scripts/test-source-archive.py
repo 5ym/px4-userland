@@ -109,14 +109,38 @@ PRODUCT_DUMMY_FILES = {
         "notice @VERSION@ @PLATFORM@\n@DEPENDENCY_TEXT@\n"
     ),
 }
+WINDOWS_PRODUCT_DUMMY_FILES = {
+    "docs/platforms/windows-winscard.md": "WinSCard source\n",
+    "scripts/build-windows.sh": "#!/bin/sh\n",
+    "scripts/test-windows-static-relink.sh": "#!/bin/sh\n",
+    "scripts/px4-winscard.def": "EXPORTS\n",
+    "userland/src/windows/windows_ipc.cpp": "// ipc\n",
+    "userland/src/windows/windows_sleep.cpp": "// sleep\n",
+    "userland/src/windows/windows_tuner_nonce.cpp": "// nonce\n",
+    "userland/src/windows/winscard_card_client.h": "// card client\n",
+    "userland/src/windows/winscard_card_client.cpp": "// card client\n",
+    "userland/src/windows/winscard_native.h": "// native API\n",
+    "userland/src/windows/winscard_proxy.cpp": "// proxy\n",
+    "userland/tools/px4_ts_windows.cpp": "// ts\n",
+    "userland/tools/px4_windows_args.h": "// args\n",
+    "userland/tests/windows_platform_tests.cpp": "// platform\n",
+    "userland/tests/windows_worker_tests_main.cpp": "// worker\n",
+    "userland/tests/windows_winscard_client_tests.cpp": "// client\n",
+    "userland/tests/windows_winscard_proxy_tests.cpp": "// proxy\n",
+    "userland/tests/windows_winscard_import_tests.cpp": "// import\n",
+    "userland/include/px4/windows_tuner_nonce.h": "// nonce\n",
+}
 
 
 def make_product(base: Path, name: str, *, lock: str | None, module: Path,
-                 with_module: bool) -> Path:
+                 with_module: bool, with_winscard: bool = False) -> Path:
     product = base / name
     write(product / "VERSION", "0.0.0\n")
     for path, data in PRODUCT_DUMMY_FILES.items():
         write(product / path, data)
+    if with_winscard:
+        for path, data in WINDOWS_PRODUCT_DUMMY_FILES.items():
+            write(product / path, data)
     if lock is not None:
         write(product / "cmake/dtv-userland-core.revision", lock + "\n")
     if with_module:
@@ -128,6 +152,10 @@ def make_product(base: Path, name: str, *, lock: str | None, module: Path,
             "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n"
             "include(cmake/DtvUserlandCoreDependency.cmake)\n"
             "px4_add_dtv_userland_core()\n"
+            + ("if(WIN32 AND PX4_BUILD_WINSCARD)\n"
+               "    dtv_add_windows_winscard_dll(px4_winscard)\n"
+               "endif()\n" if with_winscard else "")
+            +
             "add_executable(closure main.cpp)\n"
             "target_link_libraries(closure PRIVATE dtv::core)\n"
         ))
@@ -202,6 +230,40 @@ def main() -> int:
         run(["cmake", "-S", str(extracted / "repository"), "-B", str(build),
              "-G", "Ninja", "-DPX4_BUILD_TESTS=OFF"])
         run(["cmake", "--build", str(build), "-j2"])
+
+        with tarfile.open(archive, "r:gz") as stream:
+            members = set(stream.getnames())
+            manifest = json.load(stream.extractfile("source-manifest.json"))
+            notice = stream.extractfile("DEPENDENCY-NOTICE.txt").read().decode("utf-8")
+        if any("adapters/windows_winscard/" in name for name in members):
+            raise SystemExit("non-adopting product bundled GPL Windows WinSCard sources")
+        if "dtv_userland_core_windows_winscard_license" in manifest or \
+                "dependency.dtv-userland-core.windows-winscard-license=" in notice:
+            raise SystemExit("non-adopting product declared the optional GPL adapter")
+
+        windows_product = make_product(base, "product-winscard", lock=common_commit,
+                                       module=module, with_module=True, with_winscard=True)
+        windows_output = base / "out-winscard"
+        completed = package_source(helper, windows_product, libusb, windows_output, str(common))
+        if completed.returncode != 0:
+            raise SystemExit(f"WinSCard source packaging failed:\n{completed.stdout}")
+        windows_archive = windows_output / "px4-userland-0.0.0-source.tar.gz"
+        with tarfile.open(windows_archive, "r:gz") as stream:
+            members = set(stream.getnames())
+            manifest = json.load(stream.extractfile("source-manifest.json"))
+            notice = stream.extractfile("DEPENDENCY-NOTICE.txt").read().decode("utf-8")
+        license_member = (
+            "repository/third_party/dtv-userland-core/adapters/windows_winscard/COPYING"
+        )
+        fixture_member = (
+            "repository/third_party/dtv-userland-core/tests/"
+            "windows_winscard_native_fixture_tests.cpp"
+        )
+        if license_member not in members or fixture_member not in members:
+            raise SystemExit("adopting product source archive is missing GPL WinSCard closure")
+        if manifest.get("dtv_userland_core_windows_winscard_license") != "GPL-2.0-only" or \
+                "dependency.dtv-userland-core.windows-winscard-license=GPL-2.0-only" not in notice:
+            raise SystemExit("adopting product source archive is missing the GPL license declaration")
 
         # Negative: a declared dependency whose build closure is removed must be
         # rejected even when the inventory and checksums are internally consistent.

@@ -227,7 +227,6 @@ configure_build() {
         -DCMAKE_CXX_COMPILER="$toolchain_bin/x86_64-w64-mingw32-clang++" \
         -DCMAKE_RC_COMPILER="$toolchain_bin/llvm-rc" \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,-s" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-s" \
         -DPX4_BUILD_WINSCARD=ON \
         -DPX4_BUILD_TESTS="$tests" -DPX4_BUILD_PCSC_IFD=OFF -DPX4_ENABLE_LIBUSB="$libusb" \
         -DPX4_LIBUSB_INCLUDE_DIR="$libusb_include" \
@@ -239,6 +238,8 @@ build="$work/build"
 configure_build "$build" OFF ON
 cmake --build "$build" --target px4d px4-ts px4ctl px4_winscard
 
+build_winscard_dll=$(find "$build" -type f -name WinSCard.dll -print -quit)
+
 for program in px4d px4-ts px4ctl; do
     [ -f "$build/$program.exe" ] || {
         printf '%s\n' "expected executable $program.exe was not produced" >&2
@@ -248,12 +249,12 @@ done
 for program in px4d px4-ts px4ctl; do
     cp "$build/$program.exe" "$output/$program.exe"
 done
-[ -f "$build/WinSCard.dll" ] || {
+[ -n "$build_winscard_dll" ] || {
     printf '%s\n' 'expected x64 WinSCard.dll was not produced' >&2
     exit 1
 }
 mkdir -p "$output/winscard"
-cp "$build/WinSCard.dll" "$output/winscard/WinSCard.dll"
+cp "$build_winscard_dll" "$output/winscard/WinSCard.dll"
 if [ -e "$output/libusb-1.0.dll" ]; then
     printf '%s\n' 'refusing to stage libusb-1.0.dll; libusb is statically linked' >&2
     exit 1
@@ -285,6 +286,11 @@ if [ -n "$test_output" ]; then
     # libusb as production. No test opens a physical USB device.
     configure_build "$test_build" ON ON
     cmake --build "$test_build"
+    test_build_winscard_dll=$(find "$test_build" -type f -name WinSCard.dll -print -quit)
+    [ -n "$test_build_winscard_dll" ] || {
+        printf '%s\n' 'expected test-build x64 WinSCard.dll was not produced' >&2
+        exit 1
+    }
     for test_program in "$test_build"/*_tests.exe; do
         [ -f "$test_program" ] || continue
         cp "$test_program" "$test_output/"
@@ -305,7 +311,7 @@ if [ -n "$test_output" ]; then
     done
     # The SDK-linked fixture must resolve the application-local DLL by its
     # real import table, including the g_rgSCardT1Pci DATA import.
-    cp "$test_build/WinSCard.dll" "$test_output/WinSCard.dll"
+    cp "$test_build_winscard_dll" "$test_output/WinSCard.dll"
     "$objdump_tool" -p "$test_output/px4_windows_winscard_import_tests.exe" |
         awk '/DLL Name:/ { selected = tolower($NF) == "winscard.dll" } selected { print }' \
         > "$work/winscard-fixture-imports.txt"

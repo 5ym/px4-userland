@@ -106,12 +106,17 @@ def add_git_snapshot(root: Path, ref: str, stage: Path) -> tuple[str, str]:
     return commit, tree
 
 
-def extract_tar(archive: bytes, destination_root: Path) -> None:
+def extract_tar(archive: bytes, destination_root: Path,
+               *, include_windows_winscard: bool) -> None:
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as stream:
         extracted: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
         for member in stream.getmembers():
             name = member.name
             safe_name(name)
+            if not include_windows_winscard and (
+                    name.startswith("adapters/windows_winscard/") or
+                    name == "tests/windows_winscard_native_fixture_tests.cpp"):
+                continue
             if member.isdir():
                 continue
             if member.issym() or member.islnk():
@@ -138,6 +143,14 @@ def read_common_core_revision(product_snapshot: Path) -> str | None:
     if revision == "0" * 40:
         fail("cmake/dtv-userland-core.revision is not yet pinned to a verified commit")
     return revision
+
+
+def adopts_windows_winscard(product_snapshot: Path) -> bool:
+    cmake = product_snapshot / "CMakeLists.txt"
+    if not cmake.is_file():
+        return False
+    text = cmake.read_text(encoding="utf-8")
+    return "PX4_BUILD_WINSCARD" in text and "dtv_add_windows_winscard_dll" in text
 
 
 def resolve_common_core(repository: str, revision: str, explicit_root: Path | None,
@@ -180,7 +193,8 @@ def add_common_core(product_snapshot: Path, stage: Path, explicit_root: Path | N
     except (OSError, subprocess.CalledProcessError) as error:
         fail(f"common core git archive failed: {error}")
     destination_root = stage / "repository" / "third_party" / "dtv-userland-core"
-    extract_tar(archive, destination_root)
+    extract_tar(archive, destination_root,
+                include_windows_winscard=adopts_windows_winscard(product_snapshot))
     if not (destination_root / "LICENSE").is_file():
         fail("common core source archive has no LICENSE")
     if not (destination_root / "PROVENANCE.json").is_file():
@@ -360,6 +374,12 @@ def main() -> int:
                 "dependency.dtv-userland-core.license=MIT\n"
                 f"dependency.dtv-userland-core.commit={common_commit}\n"
             )
+            winscard_copying = (
+                stage / "repository" / "third_party" / "dtv-userland-core" /
+                "adapters" / "windows_winscard" / "COPYING"
+            )
+            if winscard_copying.is_file():
+                dependency_text += "dependency.dtv-userland-core.windows-winscard-license=GPL-2.0-only\n"
         dependency_text += (
             "corresponding-source-archive=present\n\n"
             "This archive contains the exact repository source snapshot and verified libusb 1.0.30 source "
@@ -375,6 +395,11 @@ def main() -> int:
                 "This archive also contains the pinned MIT dtv-userland-core foundation library under "
                 "repository/third_party/dtv-userland-core, including its LICENSE and PROVENANCE.json.\n"
             )
+            if winscard_copying.is_file():
+                dependency_text += (
+                    "The shared Windows WinSCard adapter in that source tree is separately licensed "
+                    "under GPL-2.0-only; see adapters/windows_winscard/COPYING.\n"
+                )
         notice = notice.replace("@DEPENDENCY_TEXT@", dependency_text)
         write_file(stage / "DEPENDENCY-NOTICE.txt", notice.encode())
         manifest = {
@@ -391,6 +416,8 @@ def main() -> int:
         if common_commit is not None:
             manifest["dtv_userland_core_commit"] = common_commit
             manifest["dtv_userland_core_license"] = "MIT"
+            if winscard_copying.is_file():
+                manifest["dtv_userland_core_windows_winscard_license"] = "GPL-2.0-only"
         for path in sorted(stage.rglob("*")):
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = {"size": path.stat().st_size, "sha256": sha256(path)}
