@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#ifndef PX4D_CORE_API_H
+#define PX4D_CORE_API_H
+
+#include PX4_CORE_TUNER_SERVICE_HEADER
+#include PX4_CORE_CARD_SERVICE_HEADER
+
+#define PX4_USERLAND_CARD_SERVICE_H
+#define PX4_USERLAND_CORE_DAEMON_API
+
+#endif  // PX4D_CORE_API_H

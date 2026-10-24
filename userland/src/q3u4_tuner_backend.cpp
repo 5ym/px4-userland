@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "q3u4_tuner_backend.h"
+#include "px4_tuner_hz.h"
 
 namespace px4::userland {
 
@@ -40,6 +41,41 @@ Result<void> Q3U4FrontendTunerBackend::tune_satellite(
     return enclosure_.tune_satellite_with_timeout(receiver, frequency_khz,
                                                   timeout_ms);
 }
+
+#if defined(PX4_USERLAND_CORE_DAEMON_API)
+Result<TunerHzProgramming> Q3U4FrontendTunerBackend::tune_terrestrial_hz(
+    std::uint8_t receiver, std::uint64_t frequency_hz,
+    std::uint32_t timeout_ms) noexcept
+{
+    const auto frequency = px4_frequency_khz(frequency_hz, ipc::System::ISDB_T);
+    if (!frequency || !receiver_supports(receiver, ipc::System::ISDB_T))
+        return Result<TunerHzProgramming>::failure(
+            frequency ? Error::UNSUPPORTED : frequency.error());
+    const auto tuned = tune_terrestrial(receiver, frequency.value(), timeout_ms);
+    if (!tuned) return Result<TunerHzProgramming>::failure(tuned.error());
+    return Result<TunerHzProgramming>::success(px4_programming(frequency.value()));
+}
+
+Result<TunerHzProgramming> Q3U4FrontendTunerBackend::tune_satellite_hz(
+    std::uint8_t receiver, std::uint64_t frequency_hz,
+    std::uint32_t timeout_ms) noexcept
+{
+    const auto frequency = px4_frequency_khz(frequency_hz, ipc::System::ISDB_S);
+    if (!frequency || !receiver_supports(receiver, ipc::System::ISDB_S))
+        return Result<TunerHzProgramming>::failure(
+            frequency ? Error::UNSUPPORTED : frequency.error());
+    const auto tuned = tune_satellite(receiver, frequency.value(), timeout_ms);
+    if (!tuned) return Result<TunerHzProgramming>::failure(tuned.error());
+    return Result<TunerHzProgramming>::success(px4_programming(frequency.value()));
+}
+
+TunerStrictProfile Q3U4FrontendTunerBackend::strict_profile(
+    std::uint8_t receiver, ipc::System system) const noexcept
+{
+    if (!receiver_supports(receiver, system)) return {};
+    return px4_strict_profile(system, true);
+}
+#endif
 
 Result<bool> Q3U4FrontendTunerBackend::is_locked(
     std::uint8_t receiver, ipc::System system) noexcept

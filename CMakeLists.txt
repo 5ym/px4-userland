@@ -208,6 +208,34 @@ function(px4_enable_project_warnings target)
 endfunction()
 
 px4_enable_project_warnings(px4_userland_core)
+
+add_library(px4_userland_device_core STATIC
+    userland/src/card.cpp
+    userland/src/firmware.cpp
+    userland/src/identity.cpp
+    userland/src/ipc.cpp
+    userland/src/it930x.cpp
+    userland/src/it930x_protocol.cpp
+    userland/src/bridge_i2c.cpp
+    userland/src/cxd2856er.cpp
+    userland/src/cxd2858er.cpp
+    userland/src/mlt5pe_frontend.cpp
+    userland/src/mlt5pe_power.cpp
+    userland/src/r850.cpp
+    userland/src/rt710.cpp
+    userland/src/tc90522.cpp
+    userland/src/q3u4_frontend.cpp
+    userland/src/q3u4_power.cpp
+    userland/src/q3u4_lnb_power.cpp
+    userland/src/tagged_ts_demux.cpp
+)
+target_include_directories(px4_userland_device_core
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+)
+target_compile_features(px4_userland_device_core PUBLIC cxx_std_17)
+target_link_libraries(px4_userland_device_core PUBLIC Threads::Threads dtv::core)
+px4_enable_project_warnings(px4_userland_device_core)
+
 if(PX4_BUILD_TESTS)
     # The shared checker has no runtime, platform, USB, or vendor dependency.
     # This source can also be built directly with only userland/include.
@@ -244,6 +272,22 @@ if(PX4_ENABLE_LIBUSB)
         target_link_libraries(px4_userland_libusb_transport PUBLIC log)
     endif()
     px4_enable_project_warnings(px4_userland_libusb_transport)
+    add_library(px4_userland_host_libusb_transport STATIC
+        userland/src/libusb_transport.cpp
+    )
+    target_include_directories(px4_userland_host_libusb_transport
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+    )
+    target_compile_features(px4_userland_host_libusb_transport PUBLIC cxx_std_17)
+    target_link_libraries(px4_userland_host_libusb_transport PUBLIC
+        px4_userland_device_core
+        ${PX4_LIBUSB_TARGET}
+    )
+    if(ANDROID)
+        target_link_libraries(px4_userland_host_libusb_transport PUBLIC log)
+    endif()
+    px4_enable_project_warnings(px4_userland_host_libusb_transport)
     if(PX4_BUILD_TESTS)
         enable_testing()
         add_executable(px4_windows_libusb_stream_policy_tests
@@ -256,6 +300,31 @@ if(PX4_ENABLE_LIBUSB)
         add_test(NAME px4_windows_libusb_stream_policy_tests
             COMMAND px4_windows_libusb_stream_policy_tests)
     endif()
+endif()
+
+if(PX4_ENABLE_LIBUSB)
+    add_library(px4_userland_host_backends STATIC
+        userland/src/mlt5pe_backend.cpp
+        userland/src/q3u4_stream.cpp
+        userland/src/q3u4_card_backend.cpp
+        userland/src/q3u4_tuner_backend.cpp
+        userland/src/single_receiver_frontend.cpp
+    )
+    target_include_directories(px4_userland_host_backends PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+    )
+    target_compile_features(px4_userland_host_backends PRIVATE cxx_std_17)
+    target_compile_options(px4_userland_host_backends PRIVATE
+        "$<$<CXX_COMPILER_ID:GNU,Clang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+        "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+    )
+    target_compile_definitions(px4_userland_host_backends PRIVATE
+        PX4_CORE_TUNER_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/px4/tuner_service.h"
+        PX4_CORE_CARD_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/dtv/userland/host_daemon/card_service.h"
+    )
+    target_link_libraries(px4_userland_host_backends PRIVATE px4_userland_device_core)
+    px4_enable_project_warnings(px4_userland_host_backends)
 endif()
 
 # Filesystem AF_UNIX is a POSIX adapter, including Android API 24.  Keep its
@@ -397,9 +466,9 @@ if(WIN32)
             userland/src/px4d_args.cpp
         )
         target_link_libraries(px4d PRIVATE
-            px4_userland_windows_ipc
             px4_userland_windows_platform
-            px4_userland_libusb_transport
+            px4_userland_host_backends
+            px4_userland_host_libusb_transport
             dtv::host_listener_context
             shell32
         )
@@ -407,6 +476,15 @@ if(WIN32)
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/tools
+        )
+        target_compile_options(px4d PRIVATE
+            "$<$<CXX_COMPILER_ID:GNU,Clang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+            "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+        )
+        target_compile_definitions(px4d PRIVATE
+            PX4_CORE_TUNER_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/px4/tuner_service.h"
+            PX4_CORE_CARD_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/dtv/userland/host_daemon/card_service.h"
+            PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}"
         )
         target_compile_features(px4d PRIVATE cxx_std_17)
         px4_enable_project_warnings(px4d)
@@ -916,19 +994,22 @@ if(TARGET px4_userland_posix_ipc)
             userland/src/px4d_args.cpp
         )
         target_link_libraries(px4d PRIVATE
-            px4_userland_posix_ipc
-            px4_userland_libusb_transport
+            px4_userland_host_backends
+            px4_userland_host_libusb_transport
             dtv::host_listener_context
         )
-        if(TARGET px4_userland_posix_workers)
-            target_link_libraries(px4d PRIVATE px4_userland_posix_workers)
-        endif()
-        if(TARGET px4_userland_stream_runtime)
-            target_link_libraries(px4d PRIVATE px4_userland_stream_runtime)
-        endif()
         target_include_directories(px4d PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/include
             ${CMAKE_CURRENT_SOURCE_DIR}/userland/src
+        )
+        target_compile_options(px4d PRIVATE
+            "$<$<CXX_COMPILER_ID:GNU,Clang>:-include${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+            "$<$<CXX_COMPILER_ID:MSVC>:/FI${CMAKE_CURRENT_SOURCE_DIR}/userland/tools/px4d_core_api.h>"
+        )
+        target_compile_definitions(px4d PRIVATE
+            PX4_CORE_TUNER_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/px4/tuner_service.h"
+            PX4_CORE_CARD_SERVICE_HEADER="${dtv_userland_core_SOURCE_DIR}/adapters/host_daemon/include/dtv/userland/host_daemon/card_service.h"
+            PX4_USERLAND_PRODUCT_VERSION="${PROJECT_VERSION}"
         )
         target_compile_features(px4d PRIVATE cxx_std_17)
         px4_enable_project_warnings(px4d)
