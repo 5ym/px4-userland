@@ -335,6 +335,8 @@ bool test_device_name_and_error_mapping()
           IfdResult::no_such_device);
     CHECK(map_ifd_error(Error::BUFFER_TOO_SMALL, IfdOperation::transmit) ==
           IfdResult::insufficient_buffer);
+    CHECK(map_ifd_error(Error::RESOURCE_LIMIT, IfdOperation::transmit) ==
+          IfdResult::communication_error);
     return true;
 }
 
