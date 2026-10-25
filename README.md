@@ -239,8 +239,8 @@ done
 test "$ready" = 1 || { echo 'px4d did not become ready' >&2; exit 1; }
 /opt/px4-userland/px4-ts \
   --device 'serial:<base-serial>' --receiver 2 --system isdb-t \
-  --frequency-khz 557142 --runtime-dir "$runtime_dir" \
-  --output - --duration-seconds 30 > stream.ts
+  --freq 557142857 --runtime-dir "$runtime_dir" \
+  --output - --time 30 > stream.ts
 ```
 
 この一連の例はpx4dをバックグラウンドで起動し、最大30秒のreadiness確認後に受信します。終了時はpx4dを停止・reapしてからruntime rootを`rmdir`します。
@@ -260,7 +260,7 @@ PX-Q3U4 に搭載されている 8 つの受信機は以下の番号に割り当
 | 4, 5 | ISDB-S | デバイス 2（衛星放送） |
 | 6, 7 | ISDB-T | デバイス 2（地上波） |
 
-DTV02A-5TS-P / PX-MLT5PE の 5 つの受信機は 0〜4 番で、いずれも選局ごとに ISDB-T と ISDB-S を選択できます（同じ lease のまま切り替え可能）。`px4ctl list` では `system=ISDB-T/S` と表示され、存在しない 5〜7 番は `status` に表示されません。
+DTV02A-5TS-P / PX-MLT5PE の 5 つの受信機は 0〜4 番で、いずれも選局ごとに ISDB-T と ISDB-S を選択できます（同じ lease のまま切り替え可能）。存在しない 5〜7 番は `status` に表示されません。
 
 | 受信機番号 | 放送方式 | 備考 |
 |:---:|:---:|---|
@@ -339,8 +339,8 @@ runtime_dir="$PREFIX/tmp/p4"
 
 # 地上波の受信（別セッション）
 /path/to/px4-ts --device serial:<base-serial> --receiver 2 --system isdb-t \
-  --frequency-khz 557142 --runtime-dir "$runtime_dir" \
-  --output - --duration-seconds 30 > stream.ts
+  --freq 557142857 --runtime-dir "$runtime_dir" \
+  --output - --time 30 > stream.ts
 ```
 
 ### `px4d`（デバイス所有デーモン）
@@ -376,49 +376,53 @@ px4d --version
 `px4d` に接続し、指定した受信機から MPEG-TS ストリームを受信して標準出力またはファイルへ出力します。
 
 ```sh
-px4-ts (--device serial:...|usb:... | --instance TOKEN) --receiver 0..7 --system isdb-t|isdb-s --frequency-khz N [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --system isdb-t|isdb-s --freq HZ [--runtime-dir PATH] [--group] [OPTIONS]
 ```
+
+POSIXでの接続先解決では、`--device` と `--instance` を省略すると、指定した `--runtime-dir` または既定runtime root候補から一意なPX4 daemonを選びます。候補が0件または複数なら失敗します。`--device` だけを指定した場合は一致するdevice identityのdaemonを一意に選び、`--instance` を指定した場合はそのtokenへ接続します。両方を指定すると、そのinstanceへのdevice identity assertionになります。
 
 `--channel CH` を使うと、チャンネル表記から方式と周波数、ISDB-S の slot を決められます。
 
 ```sh
-px4-ts (--device serial:...|usb:... | --instance TOKEN) --receiver 0..7 --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
-- `--device serial:...|usb:...` / `--instance TOKEN`: 対象デーモンの接続先をどちらか一方で指定します。位置指定で起動したデーモンには同じTOKENを指定してください。
+- `--device serial:...|usb:...` / `--instance TOKEN`: 上記POSIX接続先解決に使います。位置指定で起動したデーモンに対するidentity assertionには同じTOKENを指定してください。ここに記した省略時選択はPOSIXの動作です。
 - `--receiver 0..7`: 利用する受信機番号（必須）。DTV02A-5TS-P / PX-MLT5PE は 0..4 です。
-- `--system isdb-t|isdb-s`: 放送方式（必須）。
-- `--frequency-khz N`: 受信周波数（kHz 単位、必須）。
-- `--channel CH`: チャンネル表記（後述）から方式と周波数を決めます。`--system` / `--frequency-khz` とは同時指定できません。
+- `-s/--system isdb-t|isdb-s`: 放送方式（`--freq`使用時に必須）。`--channel`と併用する場合はchannelから決まる方式と一致する値を指定します。
+- `-f/--freq HZ`: 受信周波数（Hz 単位、`--system`と併用）。
+- `-c/--channel CH`: チャンネル表記（後述）から方式と周波数を決めます。`--freq`とは同時指定できません。
 - ISDB-T 固有設定:
   - 帯域幅は 6MHz（6000000Hz）固定です。
 - ISDB-S 固有設定:
-  - `--stream-id N`（TSID）または `--slot 0..11` のいずれか一方が必須です。
+  - `--tsid N` または `--slot 0..11` のいずれか一方が必須です。
 - 停止条件（任意指定・相互排他。両方省略した場合は明示的停止またはエラーまで連続出力）:
-  - `--duration-seconds N`: 指定秒数の受信後に終了します。
+  - `-t/--time SECONDS`: 指定秒数の受信後に終了します。`-`は無期限です。
   - `--packet-count N`: 指定 TS パケット数の受信後に終了します。
 - その他のオプション:
-  - `--output PATH`: 出力先ファイルパスを指定します（`-` で標準出力、既定値: `-`）。
+  - `-o/--output PATH`: 出力先ファイルパスを指定します（`-` で標準出力、既定値: `-`）。
   - `--tune-timeout-ms N`: チューニング待機時間（ミリ秒、範囲: 100〜30000、既定値: 10000）。
   - `--lnb-voltage 0|15`: LNB 出力電圧の要求（既定値: 0）。15V 対応機種では `px4d --allow-lnb-power` との併用が必要です。PX-M1UR と DTV02-1T1S-U / DTV02A-1T1S-U は 0V での ISDB-S 受信のみが仕様上の対象で、後者2機種は実機未検証です。
   - `--runtime-dir PATH`: `px4d` と共有するランタイムルートディレクトリ（省略時は `$XDG_RUNTIME_DIR`）。
+
+旧 `--frequency-khz` / `--duration-seconds` / `--stream-id` は受け付けません。`--freq` は Hz、`--time` は秒、`--tsid` はTSIDを指定します。
 
 #### `--channel` の表記
 
 `--channel CH` は mirakc が渡すチャンネル表記を受け付け、方式と周波数、ISDB-S の slot へ変換します。受け付ける表記は利用側と共有する**互換性を保つ公開インターフェース**であり、これ以外の表記は usage error（exit 2）で拒否します。
 
-| 表記 | 例 | 意味 | system | frequency_khz | ISDB-S stream 選択 |
+| 表記 | 例 | 意味 | system | frequency_hz | ISDB-S stream 選択 |
 |---|---|---|---|---|---|
-| `T<NN>` | `T27` | 地上波物理チャンネル 13〜62 | isdb-t | `395142 + NN * 6000` | なし |
-| `<NN>` | `27` | `T<NN>` と同じ（数値だけの地上波物理チャンネル） | isdb-t | `395142 + NN * 6000` | なし |
-| `BS<NN>_<S>` | `BS01_0` | BS トランスポンダ NN（奇数 01〜23）、slot S（0〜11） | isdb-s | `1049480 + ((NN - 1) / 2) * 38360` | slot = S |
-| `BS<NN>` | `BS01` | BS トランスポンダ NN（奇数 01〜23） | isdb-s | `1049480 + ((NN - 1) / 2) * 38360` | `--slot` か `--stream-id` が必須 |
-| `CS<N>` | `CS2` | CS トランスポンダ N（偶数 2〜24） | isdb-s | `1613000 + ((N - 2) / 2) * 40000` | 既定 slot = 0。`--slot` / `--stream-id` で上書き可 |
+| `T<NN>` | `T27` | 地上波物理チャンネル 13〜62 | isdb-t | `395142857 + NN * 6000000` | なし |
+| `<NN>` | `27` | `T<NN>` と同じ（数値だけの地上波物理チャンネル） | isdb-t | `395142857 + NN * 6000000` | なし |
+| `BS<NN>_<S>` | `BS01_0` | BS トランスポンダ NN（奇数 01〜23）、slot S（0〜11） | isdb-s | `1049480000 + ((NN - 1) / 2) * 38360000` | slot = S |
+| `BS<NN>` | `BS01` | BS トランスポンダ NN（奇数 01〜23） | isdb-s | `1049480000 + ((NN - 1) / 2) * 38360000` | `--slot` か `--tsid` が必須 |
+| `CS<N>` | `CS2` | CS トランスポンダ N（偶数 2〜24） | isdb-s | `1613000000 + ((N - 2) / 2) * 40000000` | 既定 slot = 0。`--slot` / `--tsid` で上書き可 |
 
-- `--channel` と `--system` / `--frequency-khz` は同時指定できません。
-- `BS<NN>_<S>` は slot を表記に含むため `--slot` / `--stream-id` と同時指定できません。
-- `T<NN>` / `<NN>` は ISDB-T のため `--slot` / `--stream-id` を指定できません。
-- `BS<NN>` は `--slot` または `--stream-id` が必須です。
+- `--channel` と `--freq` は同時指定できません。`--system`は省略でき、指定する場合はchannel由来の方式と一致する必要があります。
+- `BS<NN>_<S>` は slot を表記に含むため `--slot` / `--tsid` と同時指定できません。
+- `T<NN>` / `<NN>` は ISDB-T のため `--slot` / `--tsid` を指定できません。
+- `BS<NN>` は `--slot` または `--tsid` が必須です。
 
 mirakc の tuner command では、チャンネル表記をそのまま `--channel` へ渡せます。
 
