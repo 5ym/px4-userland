@@ -376,7 +376,7 @@ px4d --version
 `px4d` に接続し、指定した受信機から MPEG-TS ストリームを受信して標準出力またはファイルへ出力します。
 
 ```sh
-px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --system isdb-t|isdb-s --freq HZ [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts [--device serial:...|usb:...] [--instance TOKEN] [--receiver ID] --system isdb-t|isdb-s --freq HZ [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
 POSIXでの接続先解決では、`--device` と `--instance` を省略すると、指定した `--runtime-dir` または既定runtime root候補から一意なPX4 daemonを選びます。候補が0件または複数なら失敗します。`--device` だけを指定した場合は一致するdevice identityのdaemonを一意に選び、`--instance` を指定した場合はそのtokenへ接続します。両方を指定すると、そのinstanceへのdevice identity assertionになります。
@@ -384,11 +384,11 @@ POSIXでの接続先解決では、`--device` と `--instance` を省略する�
 `--channel CH` を使うと、チャンネル表記から方式と周波数、ISDB-S の slot を決められます。
 
 ```sh
-px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts [--device serial:...|usb:...] [--instance TOKEN] [--receiver ID] --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
 - `--device serial:...|usb:...` / `--instance TOKEN`: 上記POSIX接続先解決に使います。位置指定で起動したデーモンに対するidentity assertionには同じTOKENを指定してください。ここに記した省略時選択はPOSIXの動作です。
-- `--receiver 0..7`: 利用する受信機番号（必須）。DTV02A-5TS-P / PX-MLT5PE は 0..4 です。
+- `--receiver ID`: 利用する受信機番号です。省略時はdaemonが公開する受信機が1つの場合にその番号を選び、複数の場合は明示指定が必要です。DTV02A-5TS-P / PX-MLT5PE は 0..4 です。
 - `-s/--system isdb-t|isdb-s`: 放送方式（`--freq`使用時に必須）。`--channel`と併用する場合はchannelから決まる方式と一致する値を指定します。
 - `-f/--freq HZ`: 受信周波数（Hz 単位、`--system`と併用）。
 - `-c/--channel CH`: チャンネル表記（後述）から方式と周波数を決めます。`--freq`とは同時指定できません。
