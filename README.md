@@ -379,17 +379,19 @@ px4d --version
 px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --system isdb-t|isdb-s --freq HZ [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
+POSIXでの接続先解決では、`--device` と `--instance` を省略すると、指定した `--runtime-dir` または既定runtime root候補から一意なPX4 daemonを選びます。候補が0件または複数なら失敗します。`--device` だけを指定した場合は一致するdevice identityのdaemonを一意に選び、`--instance` を指定した場合はそのtokenへ接続します。両方を指定すると、そのinstanceへのdevice identity assertionになります。
+
 `--channel CH` を使うと、チャンネル表記から方式と周波数、ISDB-S の slot を決められます。
 
 ```sh
-px4-ts (--device serial:...|usb:... | --instance TOKEN) --receiver 0..7 --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
+px4-ts [--device serial:...|usb:...] [--instance TOKEN] --receiver 0..7 --channel CH [--runtime-dir PATH] [--group] [OPTIONS]
 ```
 
-- `--device serial:...|usb:...` / `--instance TOKEN`: どちらか一方は必須です。両方を指定するとTOKENの接続先に対するdevice identity assertionになります。位置指定で起動したデーモンには同じTOKENを指定してください。
+- `--device serial:...|usb:...` / `--instance TOKEN`: 上記POSIX接続先解決に使います。位置指定で起動したデーモンに対するidentity assertionには同じTOKENを指定してください。ここに記した省略時選択はPOSIXの動作です。
 - `--receiver 0..7`: 利用する受信機番号（必須）。DTV02A-5TS-P / PX-MLT5PE は 0..4 です。
-- `-s/--system isdb-t|isdb-s`: 放送方式（周波数指定時に必須）。
+- `-s/--system isdb-t|isdb-s`: 放送方式（`--freq`使用時に必須）。`--channel`と併用する場合はchannelから決まる方式と一致する値を指定します。
 - `-f/--freq HZ`: 受信周波数（Hz 単位、`--system`と併用）。
-- `-c/--channel CH`: チャンネル表記（後述）から方式と周波数を決めます。`--system` / `--freq` とは同時指定できません。
+- `-c/--channel CH`: チャンネル表記（後述）から方式と周波数を決めます。`--freq`とは同時指定できません。
 - ISDB-T 固有設定:
   - 帯域幅は 6MHz（6000000Hz）固定です。
 - ISDB-S 固有設定:
@@ -417,7 +419,7 @@ px4-ts (--device serial:...|usb:... | --instance TOKEN) --receiver 0..7 --channe
 | `BS<NN>` | `BS01` | BS トランスポンダ NN（奇数 01〜23） | isdb-s | `1049480000 + ((NN - 1) / 2) * 38360000` | `--slot` か `--tsid` が必須 |
 | `CS<N>` | `CS2` | CS トランスポンダ N（偶数 2〜24） | isdb-s | `1613000000 + ((N - 2) / 2) * 40000000` | 既定 slot = 0。`--slot` / `--tsid` で上書き可 |
 
-- `--channel` と `--system` / `--freq` は同時指定できません。
+- `--channel` と `--freq` は同時指定できません。`--system`は省略でき、指定する場合はchannel由来の方式と一致する必要があります。
 - `BS<NN>_<S>` は slot を表記に含むため `--slot` / `--tsid` と同時指定できません。
 - `T<NN>` / `<NN>` は ISDB-T のため `--slot` / `--tsid` を指定できません。
 - `BS<NN>` は `--slot` または `--tsid` が必須です。
