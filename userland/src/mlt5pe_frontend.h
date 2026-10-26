@@ -1,10 +1,14 @@
-// Modified/ported for px4-userland on 2026-09-24.
+// Modified/ported for px4-userland on 2026-09-24; J.83 Annex B added on 2026-10-26.
 //
 // Copyright (c) 2018-2021 nns779
 // Derived from tsukumijima/px4_drv commit d748866f0da1cb3656106a520de4e9d7f073aacd (v0.6.1).
 // Origin paths: driver/pxmlt_device.c, driver/pxmlt_device.h,
 // winusb/src/DriverHost_PX4/pxmlt_device.cpp.
 // Source snapshot maintained by tsukumijima.
+//
+// The J.83 Annex B tune and lock dispatch (2026-10-26) is based on
+// driver/pxmlt_device.c of tsukumijima/px4_drv pull request #46 at commit
+// 2ce5304043d5efd47142ab247e6b815a16302c93.
 // SPDX-License-Identifier: GPL-2.0-only
 #ifndef PX4_USERLAND_MLT5PE_FRONTEND_H
 #define PX4_USERLAND_MLT5PE_FRONTEND_H
@@ -64,9 +68,11 @@ constexpr MltModelLayout mlt_model_layout(DeviceModel model) noexcept
 }
 
 // Up to five CXD2856ER/CXD2858ER receivers of one MLT-family enclosure.
-// Every configured receiver can tune ISDB-T or ISDB-S. I2C sequences on
-// the same bridge bus are serialized, which also serializes each tuner gate
-// open/access/close because all tuners on a bus share address 0x60.
+// Every configured receiver can tune ISDB-T or ISDB-S, and at this layer has a
+// J.83 Annex B 5.6 Msps sequence (hardware-unverified, not reachable through
+// IPC). I2C sequences on the same bridge bus are serialized, which also
+// serializes each tuner gate open/access/close because all tuners on a bus
+// share address 0x60.
 class Mlt5PeFrontend final {
 public:
     Mlt5PeFrontend(BridgeI2cMaster& bus1, BridgeI2cMaster& bus3,
@@ -90,6 +96,7 @@ public:
     // has decided that no signal can be acquired on this frequency.
     Result<bool> is_terrestrial_locked(std::uint8_t receiver) noexcept;
     Result<bool> is_satellite_locked(std::uint8_t receiver) noexcept;
+    Result<bool> is_j83b_locked(std::uint8_t receiver) noexcept;
     Result<void> start_capture(std::uint8_t receiver) noexcept;
     Result<void> stop_capture(std::uint8_t receiver) noexcept;
 

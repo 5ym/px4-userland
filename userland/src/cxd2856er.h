@@ -1,10 +1,13 @@
-// Modified/ported for px4-userland on 2026-09-24.
+// Modified/ported for px4-userland on 2026-09-24; J.83 Annex B added on 2026-10-26.
 //
 // Copyright (c) 2018-2021 nns779
 // Derived from tsukumijima/px4_drv commit d748866f0da1cb3656106a520de4e9d7f073aacd (v0.6.1).
 // Origin paths: driver/cxd2856er.c, driver/cxd2856er.h, driver/i2c_comm.h,
 // driver/pxmlt_device.c.
 // Source snapshot maintained by tsukumijima.
+//
+// The J.83 Annex B declarations (2026-10-26) belong to the sequences in
+// cxd2856er.cpp; see that file for their sources.
 // SPDX-License-Identifier: GPL-2.0-only
 #ifndef PX4_USERLAND_CXD2856ER_H
 #define PX4_USERLAND_CXD2856ER_H
@@ -26,6 +29,9 @@ enum class Cxd2856erSystem : std::uint8_t {
     unspecified = 0,
     isdb_t = 1,
     isdb_s = 2,
+    // ITU-T J.83 Annex B at 5.6 Msps, with the QAM search range of the
+    // cxd2878.c 5.60 Msps setting (bank 0x40 register 0x14 = 0x10).
+    j83b = 3,
 };
 
 enum class Cxd2856erTarget : std::uint8_t {
@@ -71,12 +77,21 @@ public:
     void terminate() noexcept;
     Result<void> sleep() noexcept;
     // ISDB-T is always 6 MHz on the supported boards.
+    //
+    // Leaving J.83B, or retuning it, first runs the J.83B sleep, which
+    // restores only the registers that the J.83B branch of cxd2878_sleep()
+    // restores.  Other J.83B values remain until another wakeup rewrites them,
+    // as in px4_drv pull request #46: ISDB-S does not rewrite bank 0x11
+    // 0x6a/0x33-0x35 or bank 0x10 0xa5/0xa6-0xb3/0xb6-0xb8, while ISDB-T does.
+    // If that sleep fails, the demodulator stays in J.83B and the wakeup fails
+    // before any other system is set up.
     Result<void> wakeup(Cxd2856erSystem system) noexcept;
     Result<void> post_tune() noexcept;
     Result<void> set_slot_isdbs(std::uint8_t slot) noexcept;
     Result<void> set_tsid_isdbs(std::uint16_t tsid) noexcept;
     Result<Cxd2856erTerrestrialLock> is_ts_locked_isdbt() noexcept;
     Result<bool> is_ts_locked_isdbs() noexcept;
+    Result<bool> is_ts_locked_j83b() noexcept;
     // The serial TS output setup performed by pxmlt_chrdev_open after the
     // demodulator and tuner are initialized.
     Result<void> configure_ts_output() noexcept;
@@ -108,9 +123,11 @@ private:
     Result<void> set_ts_pin_state(bool enabled) noexcept;
     Result<void> sleep_isdbt() noexcept;
     Result<void> sleep_isdbs() noexcept;
+    Result<void> sleep_j83b() noexcept;
     Result<void> set_bandwidth_isdbt() noexcept;
     Result<void> wakeup_isdbt() noexcept;
     Result<void> wakeup_isdbs() noexcept;
+    Result<void> wakeup_j83b() noexcept;
     Result<void> reset_isdbt() noexcept;
     Result<void> reset_isdbs() noexcept;
 

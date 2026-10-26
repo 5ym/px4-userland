@@ -1,10 +1,14 @@
-// Modified/ported for px4-userland on 2026-09-24.
+// Modified/ported for px4-userland on 2026-09-24; J.83 Annex B added on 2026-10-26.
 //
 // Copyright (c) 2018-2021 nns779
 // Derived from tsukumijima/px4_drv commit d748866f0da1cb3656106a520de4e9d7f073aacd (v0.6.1).
 // Origin paths: driver/pxmlt_device.c, driver/pxmlt_device.h,
 // winusb/src/DriverHost_PX4/pxmlt_device.cpp.
 // Source snapshot maintained by tsukumijima.
+//
+// The J.83 Annex B tune and lock dispatch (2026-10-26) is based on
+// driver/pxmlt_device.c of tsukumijima/px4_drv pull request #46 at commit
+// 2ce5304043d5efd47142ab247e6b815a16302c93.
 // SPDX-License-Identifier: GPL-2.0-only
 #include "mlt5pe_frontend.h"
 
@@ -123,7 +127,8 @@ Result<void> Mlt5PeFrontend::tune(std::uint8_t receiver, Cxd2856erSystem system,
                                  std::uint32_t frequency_khz) noexcept
 {
     if (!valid_receiver(receiver) ||
-        (system != Cxd2856erSystem::isdb_t && system != Cxd2856erSystem::isdb_s))
+        (system != Cxd2856erSystem::isdb_t && system != Cxd2856erSystem::isdb_s &&
+         system != Cxd2856erSystem::j83b))
         return Result<void>::failure(Error::INVALID_ARGUMENT);
     Receiver& target = receivers_[receiver];
     std::lock_guard<std::mutex> lock(bus_mutex(receiver));
@@ -138,8 +143,13 @@ Result<void> Mlt5PeFrontend::tune(std::uint8_t receiver, Cxd2856erSystem system,
     }
     auto result = target.demod.wakeup(system);
     if (result) {
-        result = system == Cxd2856erSystem::isdb_t ? target.tuner.set_params_t(frequency_khz)
-                                                   : target.tuner.set_params_s(frequency_khz);
+        if (system == Cxd2856erSystem::isdb_t) {
+            result = target.tuner.set_params_t(frequency_khz);
+        } else if (system == Cxd2856erSystem::isdb_s) {
+            result = target.tuner.set_params_s(frequency_khz);
+        } else {
+            result = target.tuner.set_params_j83b(frequency_khz);
+        }
     }
     if (result) result = target.demod.post_tune();
     if (result) {
@@ -192,6 +202,23 @@ Result<bool> Mlt5PeFrontend::is_satellite_locked(std::uint8_t receiver) noexcept
     if (receivers_[receiver].demod.system() != Cxd2856erSystem::isdb_s)
         return Result<bool>::failure(Error::NOT_READY);
     return receivers_[receiver].demod.is_ts_locked_isdbs();
+}
+
+Result<bool> Mlt5PeFrontend::is_j83b_locked(std::uint8_t receiver) noexcept
+{
+    if (!valid_receiver(receiver)) return Result<bool>::failure(Error::INVALID_ARGUMENT);
+    std::lock_guard<std::mutex> lock(bus_mutex(receiver));
+    {
+        // Only a completed J.83B tune is checked.  The demodulator also keeps
+        // J.83B after a failed tune or restore, which must not read as a lock.
+        std::lock_guard<std::mutex> state_lock(state_mutex_);
+        const Receiver& target = receivers_[receiver];
+        if (target.system != Cxd2856erSystem::j83b ||
+            (target.state != Mlt5PeReceiverState::tuned &&
+             target.state != Mlt5PeReceiverState::capturing))
+            return Result<bool>::failure(Error::NOT_READY);
+    }
+    return receivers_[receiver].demod.is_ts_locked_j83b();
 }
 
 Result<void> Mlt5PeFrontend::start_capture(std::uint8_t receiver) noexcept

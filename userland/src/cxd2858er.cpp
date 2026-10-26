@@ -1,9 +1,21 @@
-// Modified/ported for px4-userland on 2026-09-24.
+// Modified/ported for px4-userland on 2026-09-24; J.83 Annex B added on 2026-10-26.
 //
 // Copyright (c) 2018-2021 nns779
 // Derived from tsukumijima/px4_drv commit d748866f0da1cb3656106a520de4e9d7f073aacd (v0.6.1).
 // Origin paths: driver/cxd2858er.c, driver/cxd2858er.h, driver/pxmlt_device.c.
 // Source snapshot maintained by tsukumijima.
+//
+// The J.83 Annex B values (2026-10-26) are copied from the HELENE (CXD2858ER)
+// code of cxd2878.c in koreapyj/cxd28xx at commit
+// c5fa27eecbe80633cbb365cc44656daea1c0e2e3 (added there by commit 8427e4b),
+// which states GPL-2.0-only.  Up to that main-branch commit the code is never
+// called in cxd2878.c (an unmerged test/pxmlt branch calls it for ISDB-T/S
+// only), so the values are supported by comparison with Sony's sony_helene.c
+// and with driver/cxd2858er.c of tsukumijima/px4_drv pull request #46 at commit
+// 2ce5304043d5efd47142ab247e6b815a16302c93 (see PROVENANCE.md):
+// Copyright (c) 2022 Sony Semiconductor Solutions Corporation
+// Copyright (c) 2021 Davin zhang <Davin@tbsdtv.com> www.Turbosight.com
+// Copyright (c) 2026 Yoonji Park <koreapyj@dcmys.kr>
 // SPDX-License-Identifier: GPL-2.0-only
 #include "cxd2858er.h"
 
@@ -19,7 +31,11 @@ constexpr std::uint8_t kXtalPowerOn = 0x10U;
 constexpr std::uint8_t kXtalTune = 0x02U;
 constexpr std::uint8_t kTerrestrialLna = 0x05U | 0x02U;
 constexpr std::uint8_t kSatelliteLna = 0xfeU | 0x01U;
-// ISDB-T accepts a 20-bit kHz frequency; ISDB-S a 20-bit quarter-MHz value.
+// REF_R for cable systems with the 16 MHz crystal of the supported boards
+// (cxd2878.c line 1866; a 24 MHz crystal would need 0x18, line 1862).
+constexpr std::uint8_t kCableRefR = 0x10U;
+// ISDB-T and J.83B accept a 20-bit kHz frequency; ISDB-S a 20-bit
+// quarter-MHz value.
 constexpr std::uint32_t kMaxFrequencyField = 0xfffffU;
 
 }  // namespace
@@ -142,13 +158,15 @@ void Cxd2858er::terminate() noexcept
         system_ = Cxd2858erSystem::unspecified;
         return;
     }
-    (void)(system_ == Cxd2858erSystem::isdb_t ? stop_t() : stop_s());
+    // J.83B uses the terrestrial RF path and stops like ISDB-T, as in px4_drv
+    // pull request #46.
+    (void)(system_ == Cxd2858erSystem::isdb_s ? stop_s() : stop_t());
     (void)demod_.set_tuner_gate(false);
 }
 
 Result<void> Cxd2858er::stop_t() noexcept
 {
-    if (system_ != Cxd2858erSystem::isdb_t) {
+    if (system_ != Cxd2858erSystem::isdb_t && system_ != Cxd2858erSystem::j83b) {
         return Result<void>::failure(Error::INVALID_ARGUMENT);
     }
     constexpr Step mode[] = {{0x74U, 0x02U, 0xffU}, {0x67U, 0x00U, 0xfeU}};
@@ -235,7 +253,7 @@ Result<void> Cxd2858er::set_params_s(std::uint32_t frequency_khz) noexcept
 
 Result<void> Cxd2858er::set_params_s_gated(std::uint32_t frequency_khz) noexcept
 {
-    if (system_ == Cxd2858erSystem::isdb_t) {
+    if (system_ == Cxd2858erSystem::isdb_t || system_ == Cxd2858erSystem::j83b) {
         if (const auto result = stop_t(); !result) return result;
     }
     constexpr Step lna[] = {{0x15U, 0x02U, 0xffU}, {0x43U, 0x06U, 0xffU}};
@@ -263,6 +281,64 @@ Result<void> Cxd2858er::set_params_s_gated(std::uint32_t frequency_khz) noexcept
     constexpr Step finish[] = {{0x05U, 0x00U, 0xffU}, {0x04U, 0xc0U, 0xffU}};
     if (const auto result = apply(finish); !result) return result;
     system_ = Cxd2858erSystem::isdb_s;
+    return Result<void>::success();
+}
+
+Result<void> Cxd2858er::set_params_j83b(std::uint32_t frequency_khz) noexcept
+{
+    if (frequency_khz == 0U || frequency_khz > kMaxFrequencyField) {
+        return Result<void>::failure(Error::INVALID_ARGUMENT);
+    }
+    return gated(
+        [this, frequency_khz]() noexcept { return set_params_j83b_gated(frequency_khz); });
+}
+
+// helene_tune_terr() in cxd2878.c (c5fa27e lines 1822-1947; the function is
+// defined but not called on that main-branch commit) with the values taken
+// when is_cable is true for SONY_FREIA_DTV_SKP_OPT (conditions on lines
+// 1815-1819, 1835-1843, 1847, 1864-1866, 1872-1882 and 1929-1935) and the
+// SONY_HELENE_DTV_J83B_5_6 row (line 142): IF_BPF_GC 0x04, RFOVLD_DET_LV1
+// 0x02, IFOVLD_DET_LV 0x01, BW_6, FIF_OFFSET -5 and BW_OFFSET +2 (5-bit
+// fields), then the 50 ms wait (line 1943).  0x9c and 0x9d are written
+// together as in the existing ISDB-T tune; cxd2878.c writes them one by one
+// with the same values.  The values were also compared with TER_tune() and
+// TER_tune_end() in sony_helene.c and with sony_tuner_helene.c in
+// soralis0912/it930x_driver_native at commit
+// 64fd4f3fd04cd8c19855250ebd88278734d4eba6.
+Result<void> Cxd2858er::set_params_j83b_gated(std::uint32_t frequency_khz) noexcept
+{
+    if (system_ == Cxd2858erSystem::isdb_s) {
+        if (const auto result = stop_s(); !result) return result;
+    }
+    // T mode.
+    constexpr Step mode[] = {{0x01U, 0x00U, 0xffU}, {0x74U, 0x02U, 0xffU}};
+    if (const auto result = apply(mode); !result) return result;
+    constexpr std::array<std::uint8_t, 2U> reg87{0xc4U, 0x40U};
+    if (const auto result = write_regs(0x87U, ByteView{reg87.data(), reg87.size()}); !result)
+        return result;
+    constexpr std::array<std::uint8_t, 2U> reg91{0x16U, 0x26U};
+    if (const auto result = write_regs(0x91U, ByteView{reg91.data(), reg91.size()}); !result)
+        return result;
+    constexpr std::array<std::uint8_t, 2U> reg9c{0x00U, 0x00U};
+    if (const auto result = write_regs(0x9cU, ByteView{reg9c.data(), reg9c.size()}); !result)
+        return result;
+    constexpr std::array<std::uint8_t, 9U> reg5e{0xeeU, 0x02U, 0x1eU, 0x67U, kCableRefR,
+                                                 0x1cU, 0x78U, 0x08U, 0x1cU};
+    if (const auto result = write_regs(0x5eU, ByteView{reg5e.data(), reg5e.size()}); !result)
+        return result;
+    if (const auto result = write_reg_mask(0x67U, 0x00U, 0x02U); !result) return result;
+    const std::array<std::uint8_t, 17U> tune{
+        0x00U, 0x84U, 0x00U, 0x02U, 0x21U, 0x00U, 0x1bU, 0x02U,
+        static_cast<std::uint8_t>(frequency_khz & 0xffU),
+        static_cast<std::uint8_t>((frequency_khz >> 8U) & 0xffU),
+        static_cast<std::uint8_t>((frequency_khz >> 16U) & 0x0fU),
+        0xffU, 0x01U, 0xd9U, 0x0fU, 0x24U, 0x87U};
+    if (const auto result = write_regs(0x68U, ByteView{tune.data(), tune.size()}); !result)
+        return result;
+    delay_.sleep_ms(50U);
+    constexpr Step finish[] = {{0x88U, 0x00U, 0xffU}, {0x87U, 0xc0U, 0xffU}};
+    if (const auto result = apply(finish); !result) return result;
+    system_ = Cxd2858erSystem::j83b;
     return Result<void>::success();
 }
 

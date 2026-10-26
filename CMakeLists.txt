@@ -541,6 +541,7 @@ if(WIN32)
             userland/tests/ipc_tests.cpp
             userland/tests/ipc_state_tests.cpp
             userland/tests/mlt5pe_tests.cpp
+            userland/tests/mlt_j83b_tests.cpp
             userland/tests/px4d_args_tests.cpp
             userland/tools/px4d_list_format.cpp
             userland/tests/px4d_list_format_tests.cpp
@@ -849,6 +850,7 @@ if(PX4_BUILD_TESTS AND NOT WIN32)
         userland/tests/ipc_tests.cpp
         userland/tests/ipc_state_tests.cpp
         userland/tests/mlt5pe_tests.cpp
+        userland/tests/mlt_j83b_tests.cpp
         userland/tests/px4d_args_tests.cpp
         userland/tests/px4d_signal_tests.cpp
         userland/tests/q3u4_frontend_tests.cpp

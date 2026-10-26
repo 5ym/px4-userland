@@ -80,6 +80,7 @@ bool run_ts_probe_tests();
 bool run_tagged_ts_demux_tests();
 bool run_q3u4_stream_tests();
 bool run_mlt5pe_tests();
+bool run_mlt_j83b_tests();
 
 #if PX4_ENABLE_LIBUSB && (defined(__linux__) || defined(__ANDROID__))
 #include <fcntl.h>
@@ -3828,6 +3829,7 @@ int main(int argc, char** argv)
         {"tagged_ts_demux", run_tagged_ts_demux_tests},
         {"q3u4_stream", run_q3u4_stream_tests},
         {"mlt5pe", run_mlt5pe_tests},
+        {"mlt_j83b", run_mlt_j83b_tests},
 #if PX4_ENABLE_LIBUSB
         {"bulk_transport_and_mapping", test_bulk_transport_and_mapping},
         {"acquisition_conflict_mapping", test_acquisition_conflict_mapping},

@@ -1,9 +1,12 @@
-// Modified/ported for px4-userland on 2026-09-24.
+// Modified/ported for px4-userland on 2026-09-24; J.83 Annex B added on 2026-10-26.
 //
 // Copyright (c) 2018-2021 nns779
 // Derived from tsukumijima/px4_drv commit d748866f0da1cb3656106a520de4e9d7f073aacd (v0.6.1).
 // Origin paths: driver/cxd2858er.c, driver/cxd2858er.h, driver/pxmlt_device.c.
 // Source snapshot maintained by tsukumijima.
+//
+// The J.83 Annex B declarations (2026-10-26) belong to the sequence in
+// cxd2858er.cpp; see that file for its sources.
 // SPDX-License-Identifier: GPL-2.0-only
 #ifndef PX4_USERLAND_CXD2858ER_H
 #define PX4_USERLAND_CXD2858ER_H
@@ -19,6 +22,8 @@ enum class Cxd2858erSystem : std::uint8_t {
     unspecified = 0,
     isdb_t = 1,
     isdb_s = 2,
+    // ITU-T J.83 Annex B at 5.6 Msps on the terrestrial/cable RF path.
+    j83b = 3,
 };
 
 // Sony CXD2858ER tuner reached through a CXD2856ER I2C gate.  Every public
@@ -41,6 +46,9 @@ public:
     // ISDB-T is always 6 MHz; frequencies are in kHz.
     Result<void> set_params_t(std::uint32_t frequency_khz) noexcept;
     Result<void> set_params_s(std::uint32_t frequency_khz) noexcept;
+    // SONY_HELENE_DTV_J83B_5_6 (the 5.6 Msps setting used in Japan);
+    // frequencies are in kHz.
+    Result<void> set_params_j83b(std::uint32_t frequency_khz) noexcept;
 
     Cxd2858erSystem system() const noexcept { return system_; }
 
@@ -70,6 +78,7 @@ private:
     Result<void> stop_s() noexcept;
     Result<void> set_params_t_gated(std::uint32_t frequency_khz) noexcept;
     Result<void> set_params_s_gated(std::uint32_t frequency_khz) noexcept;
+    Result<void> set_params_j83b_gated(std::uint32_t frequency_khz) noexcept;
     // Runs one gated sequence and always attempts to close the gate.
     template <typename Operation>
     Result<void> gated(Operation operation) noexcept
